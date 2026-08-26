@@ -65,10 +65,23 @@ def lease_target(campaign: Campaign, worker: str) -> dict[str, Any] | None:
     return None
 
 
+def find_main_campaign(path: Path) -> Campaign:
+    """The campaign a worktree belongs to: <main>/.fast-kernel/worktrees/<name> (or FAST_KERNEL_MAIN_CAMPAIGN)."""
+    env = os.environ.get("FAST_KERNEL_MAIN_CAMPAIGN")
+    if env and (Path(env) / "GOAL.md").exists():
+        return Campaign(Path(env))
+    here = Path(path).resolve()
+    for candidate in [here, *here.parents]:
+        if candidate.parent.name == "worktrees" and candidate.parents[1].name == ".fast-kernel":
+            return Campaign(candidate.parents[2])
+    raise RuntimeError(f"{here} is not a campaign worktree (expected <campaign>/.fast-kernel/worktrees/<name>)")
+
+
 def submit_proposal(main: Campaign, wt: Campaign, record: dict[str, Any], worker: str) -> Path | None:
     inbox = main.state_dir / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
-    base = record.get("parent_commit") or main.load_incumbent().commit
+    # diff against the point where the worktree branched off the main lineage, so the patch contains only the proposal
+    base = wt.git("merge-base", "HEAD", main.head()) or record.get("parent_commit") or main.load_incumbent().commit
     diff = wt.git("diff", f"{base}..HEAD", "--", "candidate", raw=True) if base else wt.git("show", "--format=", "HEAD", "--", "candidate", raw=True)
     if not diff.strip():
         return None
@@ -134,3 +147,37 @@ def spawn_workers(campaign: Campaign, count: int, *, model: str | None, max_turn
         procs.append(subprocess.Popen(argv, cwd=str(campaign.root), stdout=log, stderr=subprocess.STDOUT, start_new_session=True))
         campaign.store.event("worker.spawned", name=name, pid=procs[-1].pid)
     return procs
+
+
+def propose_from_worktree(worktree: Path, description: str, techniques: list[str] | None = None, target: str | None = None,
+                          worker: str | None = None) -> Path:
+    """Commit the worktree's candidate/ changes and submit them to the main campaign's inbox (in-session parallel agents)."""
+    wt = Campaign(Path(worktree))
+    main = find_main_campaign(wt.root)
+    worker = worker or wt.root.name
+    if not wt.candidate_dirty() and wt.git("log", "--oneline", f"{wt.git('merge-base', 'HEAD', main.head()) or 'HEAD'}..HEAD") == "":
+        raise RuntimeError("nothing to propose: candidate/ is identical to the incumbent")
+    if wt.candidate_dirty():
+        wt.commit_candidate(f"proposal: {description[:72]}")
+    record = {"number": wt.store.next_experiment_number(), "description": description, "techniques": list(techniques or []),
+              "target": target, "parent_commit": main.load_incumbent().commit}
+    path = submit_proposal(main, wt, record, worker)
+    if path is None:
+        raise RuntimeError("nothing to propose: the diff against the incumbent is empty")
+    return path
+
+
+def list_worktrees(campaign: Campaign) -> list[Path]:
+    root = campaign.state_dir / "worktrees"
+    return sorted(p for p in root.iterdir() if p.is_dir()) if root.exists() else []
+
+
+def remove_worktree(campaign: Campaign, name: str) -> bool:
+    path = worktree_path(campaign, name)
+    if not path.exists():
+        return False
+    campaign.git("worktree", "remove", "--force", str(path))
+    campaign.git("branch", "-D", f"worker/{name}")
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    return True

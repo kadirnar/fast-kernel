@@ -55,3 +55,33 @@ def test_worktree_lease_and_proposal(tmp_path: Path, monkeypatch):
     assert check.returncode == 0, check.stderr
     events = [e["kind"] for e in main.store.events_after(0, limit=500)]
     assert "inbox.submitted" in events and "lease" in events
+
+
+@pytest.mark.skipif(not _git_ok(), reason="git required")
+def test_worktree_cli_and_propose(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    cli.main(["init", "mimi", "--dir", str(tmp_path / "c")])
+    main = Campaign(tmp_path / "c")
+    main.store.save_experiment({"number": 0, "name": "baseline", "status": "baseline", "description": "baseline", "primary_value": 10.0})
+    main.save_incumbent(Incumbent(number=0, commit=main.head(), value=10.0, noise_floor=0.01))
+    capsys.readouterr()
+    cli.main(["--campaign", str(main.root), "worktree", "create", "eng-conv"])
+    wt_path = Path(capsys.readouterr().out.splitlines()[0].strip())
+    assert wt_path.exists() and wt_path.name == "eng-conv"
+    (wt_path / "candidate" / "kernels" / "conv.py").write_text("KERNEL = 'conv'\n", encoding="utf-8")
+    from fastkernel.agents.worker import find_main_campaign
+    assert find_main_campaign(wt_path / "candidate").root == main.root
+    monkeypatch.chdir(wt_path)
+    cli.main(["propose", "-m", "implicit-GEMM conv", "--technique", "implicit-gemm-conv", "--target", "t_conv"])
+    out = capsys.readouterr().out
+    assert "proposal submitted" in out
+    inbox = sorted((main.state_dir / "inbox").glob("*.diff"))
+    assert len(inbox) == 1 and "conv.py" in inbox[0].read_text(encoding="utf-8")
+    meta = json.loads(inbox[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["worker"] == "eng-conv" and meta["target"] == "t_conv"
+    check = subprocess.run(["git", "apply", "--check", str(inbox[0])], cwd=main.root, capture_output=True, text=True)
+    assert check.returncode == 0, check.stderr
+    cli.main(["--campaign", str(main.root), "worktree", "list"])
+    assert "eng-conv" in capsys.readouterr().out
+    cli.main(["--campaign", str(main.root), "worktree", "remove", "eng-conv"])
+    assert not wt_path.exists()

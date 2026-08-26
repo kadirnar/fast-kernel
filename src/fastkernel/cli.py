@@ -341,6 +341,28 @@ def cmd_worker(args) -> None:
     run_worker(campaign, args.name, iterations=args.iterations, model=args.model, max_turns=args.max_turns, permission_mode=args.permission_mode)
 
 
+def cmd_worktree(args) -> None:
+    from .agents.worker import create_worktree, list_worktrees, remove_worktree
+    campaign = _campaign(args)
+    if args.action == "create":
+        wt = create_worktree(campaign, args.name)
+        print(str(wt.root))
+        print(f"  branch worker/{args.name} from incumbent {campaign.load_incumbent().commit or campaign.head()}; work there, then "
+              f"`cd {wt.root} && fast-kernel propose -m \"...\"`; the main campaign evaluates it with `fast-kernel inbox`")
+    elif args.action == "list":
+        for path in list_worktrees(campaign):
+            print(path)
+    else:
+        print("removed" if remove_worktree(campaign, args.name) else "no such worktree")
+
+
+def cmd_propose(args) -> None:
+    from .agents.worker import propose_from_worktree
+    techniques = [t for item in (args.technique or []) for t in item.split(",") if t]
+    path = propose_from_worktree(Path(args.campaign or os.getcwd()), args.message, techniques, args.target, args.worker)
+    print(f"proposal submitted: {path}\n  evaluate on the incumbent with: fast-kernel inbox (from the main campaign)")
+
+
 def cmd_inbox(args) -> None:
     campaign = _campaign(args)
     from .agents.driver import process_inbox
@@ -551,6 +573,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-turns", type=int, default=80)
     p.add_argument("--permission-mode", default="acceptEdits")
     p.set_defaults(fn=cmd_worker)
+
+    p = sub.add_parser("worktree", help="private campaign worktrees for parallel agents (create | list | remove)")
+    p.add_argument("action", choices=["create", "list", "remove"])
+    p.add_argument("name", nargs="?", default="w1")
+    p.set_defaults(fn=cmd_worktree)
+
+    p = sub.add_parser("propose", help="from inside a worktree: submit candidate/ changes to the main campaign's inbox")
+    p.add_argument("-m", "--message", required=True)
+    p.add_argument("--technique", action="append")
+    p.add_argument("--target")
+    p.add_argument("--worker")
+    p.set_defaults(fn=cmd_propose)
 
     p = sub.add_parser("inbox", help="evaluate worker proposals on top of the incumbent")
     p.set_defaults(fn=cmd_inbox)

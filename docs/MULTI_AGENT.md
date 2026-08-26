@@ -28,7 +28,18 @@ The harness is the referee for all of them: acceptance is computed, not argued.
    Headless sessions carry `FK_HEADLESS=1`, so the Stop hook yields to the driver's iteration count
    instead of forcing the session to continue.
 
-## Parallel workers (`fast-kernel auto --agents N`)
+## In-session parallel engineers (`/fk-parallel`)
+
+Explore in parallel, measure serially. The orchestrator creates one private worktree per target
+(`fast-kernel worktree create eng-<target>` → `<campaign>/.fast-kernel/worktrees/eng-<target>`, branch
+`worker/eng-<target>` from the incumbent, with PLAN.md / KNOWLEDGE.md / RECIPES.md / incumbent.json copied
+in), spawns one `fk-kernel-engineer` per worktree, and each engineer ends with
+`fast-kernel propose -m "..." --technique ... --target ...` — which commits its `candidate/` changes and
+writes the diff plus metadata to the main campaign's `.fast-kernel/inbox/`. The orchestrator then runs
+`fast-kernel inbox`: every proposal is applied on the *current* incumbent, measured by the full harness
+and kept or reverted, one after another. Patches that no longer apply are rejected with an event.
+
+## Headless parallel workers (`fast-kernel auto --agents N`)
 
 Each worker (`fast-kernel worker --name wN`) gets its own git worktree of the campaign
 (`.fast-kernel/worktrees/wN`, branch `worker/wN` from the incumbent), copies of PLAN.md /
