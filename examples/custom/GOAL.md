@@ -1,0 +1,30 @@
+---
+model: custom
+objective: "Make the forward pass of my torch module as fast as possible without changing its outputs."
+target_metric: latency_ms
+direction: minimize
+min_improvement: 0.01
+continuous: true
+gates:
+  precision: strict
+  determinism: exact
+  stages: [smoke, shapes, numerical, determinism, edge]
+bench:
+  warmup: 5
+  repeats: 50
+  ramp_seconds: 1.0
+  timeout_seconds: 900
+  profile_every_experiment: true
+model_args:
+  loader: "spec:build_model"
+  input_shapes: [[1, 3, 224, 224]]
+  input_dtype: float32
+  batch_sweep: [4]
+protected: [GOAL.md, spec.py, harness/**, .fast-kernel/**, experiments/**, results.tsv]
+---
+
+# Goal
+
+Edit `spec.py` (`build_model`, and optionally the `Spec` class for custom workloads / comparisons), then
+`fast-kernel baseline`. Everything else is generic: gates compare candidate outputs to the fp32 reference
+with allclose; benchmarks use the fixed protocol; profiling ranks hotspots by Amdahl gain.

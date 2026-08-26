@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fast-kernel"
+version = "0.1.0"
+description = "Autoresearch for model inference: an agent harness that finds a model's slow parts and runs an endless keep/revert kernel-optimization loop (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs) with every experiment on a live graph."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "fast-kernel contributors" }]
+keywords = ["gpu", "kernels", "triton", "tilelang", "cuda", "autoresearch", "claude-code", "agents"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# The core is stdlib-only so that `fast-kernel status/dashboard/report` work anywhere.
+dependencies = []
+
+[project.optional-dependencies]
+# GPU runtime used by the harness (profiling, gates, benchmarks) and the model examples.
+cuda = [
+  "torch==2.13.0",
+  "triton>=3.7",
+  "transformers>=4.48",
+  "safetensors>=0.5",
+  "huggingface_hub>=0.28",
+  "numpy>=2",
+  "accelerate>=1.0",
+  # nvcc + headers must match torch's CUDA runtime minor version (torch 2.13 cu130 -> 13.0.x)
+  "nvidia-cuda-nvcc>=13.0,<13.1; sys_platform == 'linux'",
+  "nvidia-cuda-cccl>=13.0,<13.1; sys_platform == 'linux'",
+  "nvidia-cuda-runtime>=13.0,<13.1; sys_platform == 'linux'",
+  "nvidia-cuda-crt>=13.0,<13.1; sys_platform == 'linux'",
+  "nvidia-nvvm>=13.0,<13.1; sys_platform == 'linux'",
+  "ninja>=1.11",
+]
+tilelang = ["tilelang>=0.1.13"]
+cute = ["nvidia-cutlass-dsl>=4.7"]
+hub = ["kernels>=0.6"]
+yolo = ["ultralytics>=8.4"]
+audio = ["liquid-audio>=1.0"]
+agent = ["claude-agent-sdk>=0.1"]
+all = ["fast-kernel[cuda,tilelang,cute,hub,yolo,audio]"]
+dev = ["pytest>=8.3", "ruff>=0.9"]
+
+[project.scripts]
+fast-kernel = "fastkernel.cli:main"
+fk = "fastkernel.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kadirnar/fast-kernel"
+Repository = "https://github.com/kadirnar/fast-kernel"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fastkernel"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/fastkernel", "examples", "docs", "README.md", "AGENTS.md", "LICENSE"]
+
+[tool.uv]
+index-url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["campaigns", ".venv", "examples/*/candidate"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B008", "UP007"]

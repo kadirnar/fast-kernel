@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fast-kernel lab</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark">fk</span><span>fast-kernel <small>experiment lab</small></span></div>
+    <select id="campaign-select" aria-label="campaign"></select>
+    <span id="run-pill" class="pill"><span class="dot"></span><span id="run-state">idle</span></span>
+    <span id="stream-pill" class="pill"><span class="dot"></span><span id="stream-state">connecting</span></span>
+    <span class="spacer"></span>
+    <div class="tools" id="controls">
+      <button id="btn-loop" title="set the loop.active flag (Stop hook keeps the Claude Code session iterating)">start loop</button>
+      <button id="btn-pause">pause</button>
+      <button id="btn-resume">resume</button>
+      <button id="btn-stop" class="danger">stop</button>
+      <button id="btn-theme" title="toggle theme">theme</button>
+    </div>
+  </div>
+  <div class="objective" id="objective"></div>
+
+  <main>
+    <section class="kpis" id="kpis"></section>
+
+    <section class="grid">
+      <article class="card span-8">
+        <div class="card-head">
+          <div><h2>Every experiment</h2><div class="sub" id="metric-sub">primary metric per experiment; the line is the incumbent (best accepted so far)</div></div>
+          <div class="tools"><button id="btn-log" title="log scale">log</button></div>
+        </div>
+        <div class="chart"><canvas id="chart-exp" height="300"></canvas><div id="chart-exp-empty" class="empty">No experiments yet — run <code>fast-kernel baseline</code>.</div></div>
+        <div class="legend">
+          <span class="key"><span class="line"></span>incumbent</span>
+          <span class="key"><span class="dotk" style="background:var(--good)"></span>✓ keep</span>
+          <span class="key"><span class="dotk" style="background:var(--other)"></span>– discard</span>
+          <span class="key"><span class="dotk" style="background:var(--critical)"></span>✕ crash</span>
+          <span class="key"><span class="dotk" style="background:var(--warning)"></span>! harness error</span>
+          <span class="key"><span class="dotk" style="background:var(--accent)"></span>○ baseline</span>
+        </div>
+      </article>
+
+      <article class="card span-4">
+        <div class="card-head"><div><h2>Speedup vs baseline</h2><div class="sub">incumbent after each experiment</div></div></div>
+        <div class="chart"><canvas id="chart-speedup" height="200"></canvas></div>
+        <div class="card-head" style="margin-top:14px"><div><h2>Kernel launches per call</h2><div class="sub">fewer launches = less latency at small batch</div></div></div>
+        <div class="chart"><canvas id="chart-kernels" height="120"></canvas></div>
+      </article>
+
+      <article class="card span-7">
+        <div class="card-head"><div><h2>Where the time goes</h2><div class="sub" id="share-sub">GPU time share by target category — baseline vs current incumbent</div></div></div>
+        <div class="bars" id="share-bars"></div>
+        <div class="legend" id="share-legend"></div>
+      </article>
+
+      <article class="card span-5">
+        <div class="card-head"><div><h2>Ranked targets</h2><div class="sub" id="targets-sub">Amdahl gain = share × (1 − 1/expected)</div></div></div>
+        <div class="table-wrap" style="max-height:300px"><table id="targets-table"><thead><tr><th>#</th><th>target</th><th>bound</th><th class="num">share</th><th class="num">gain</th><th>next</th></tr></thead><tbody></tbody></table></div>
+      </article>
+
+      <article class="card span-12">
+        <div class="card-head"><div><h2>Lineage</h2><div class="sub">every experiment builds on the accepted incumbent; the trunk is the chain of keeps</div></div></div>
+        <div class="lineage" id="lineage"></div>
+      </article>
+
+      <article class="card span-8">
+        <div class="card-head"><div><h2>Experiments</h2><div class="sub">table view of the chart above — click a row for gates, metrics, profile, patch and log</div></div>
+          <div class="tools"><input id="filter" placeholder="filter…" style="padding:4px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"></div></div>
+        <div class="table-wrap"><table id="exp-table"><thead><tr><th class="num">#</th><th>status</th><th>description</th><th class="num" id="th-metric">metric</th><th class="num">Δ</th><th class="num">speedup</th><th class="num">kernels</th><th>gates</th><th class="num">time</th><th>agent</th></tr></thead><tbody></tbody></table></div>
+      </article>
+
+      <article class="card span-4">
+        <div class="card-head"><div><h2>Agents</h2><div class="sub">who is doing what right now</div></div></div>
+        <div class="agents" id="agents"></div>
+        <div class="card-head" style="margin-top:14px"><div><h2>Insights</h2><div class="sub">KNOWLEDGE.md</div></div></div>
+        <ul class="insights" id="insights"></ul>
+        <form class="note-form" id="note-form"><input id="note-text" placeholder="add a note to KNOWLEDGE.md"><button type="submit">note</button></form>
+      </article>
+
+      <article class="card span-12">
+        <div class="card-head"><div><h2>Event stream</h2><div class="sub" id="events-sub">live over SSE</div></div></div>
+        <div class="events" id="events"></div>
+      </article>
+    </section>
+  </main>
+  <footer>fast-kernel — autoresearch for model inference. Device: <span id="device"></span> · Backends: <span id="backends"></span></footer>
+
+  <aside class="drawer" id="drawer">
+    <header><h3 id="drawer-title">experiment</h3><div class="tabs" id="drawer-tabs"><button data-tab="overview" class="active">overview</button><button data-tab="gates">gates</button><button data-tab="profile">profile</button><button data-tab="patch">patch</button><button data-tab="log">log</button></div><button id="drawer-close">close</button></header>
+    <div class="body" id="drawer-body"></div>
+  </aside>
+  <div class="tooltip" id="tooltip"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

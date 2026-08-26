@@ -1,0 +1,66 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(fast-kernel *)",
+      "Bash(fk *)",
+      "Bash(uv run *)",
+      "Bash(uv pip *)",
+      "Bash(uv sync *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/fast-kernel *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git tag *)",
+      "Bash(nvidia-smi *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(find *)",
+      "Bash(sed -n *)",
+      "Bash(cd *)",
+      "Bash(pytest *)",
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session_start.py" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect_paths.py" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/loop_guard.py" }
+        ]
+      }
+    ]
+  }
+}

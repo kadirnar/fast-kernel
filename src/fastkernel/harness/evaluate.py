@@ -1,0 +1,269 @@
+"""One experiment = evaluate the current candidate tree, decide keep/revert, record everything.
+
+    record = run_experiment(campaign, "fuse RMSNorm into QKV projection", techniques=["fused-norm"], target="t_ab12")
+
+Decision order (strict): crash -> revert; gates FAIL -> revert; primary metric improved by at least
+max(min_improvement, measured noise floor) -> keep (commit, tag exp-N, promote incumbent); equal or worse
+-> revert unless `simpler=True` and the loss is within the threshold (autoresearch's simplicity rule).
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+from typing import Any
+
+from .. import knowledge, results
+from ..campaign import Campaign, Incumbent
+from ..profiling.plan import write_plan
+from ..util import fmt, now_iso, read_json, run, slugify, tail_text, write_json
+
+
+def _metric_value(metrics: dict[str, Any], name: str, primary: str | None) -> float | None:
+    if name in metrics and isinstance(metrics[name], (int, float)):
+        return float(metrics[name])
+    wl = (metrics.get("workloads") or {}).get(primary or metrics.get("primary") or "", {})
+    for key in (name, name.replace("latency_ms", "median_ms")):
+        if key in wl and isinstance(wl[key], (int, float)):
+            return float(wl[key])
+    return None
+
+
+def _improvement(minimize: bool, incumbent: float | None, value: float | None) -> float | None:
+    if incumbent is None or value is None or incumbent == 0:
+        return None
+    return (incumbent - value) / incumbent if minimize else (value - incumbent) / incumbent
+
+
+def run_experiment(campaign: Campaign, description: str, *, baseline: bool = False, techniques: list[str] | None = None,
+                   target: str | None = None, notes: str = "", timeout: float | None = None, simpler: bool = False,
+                   force: bool = False, profile: bool | None = None, repeats: int | None = None, warmup: int | None = None,
+                   workloads: list[str] | None = None, agent: str | None = None, quiet: bool = False) -> dict[str, Any] | None:
+    goal = campaign.goal
+    store = campaign.store
+    campaign.ensure_git()
+    techniques = list(techniques or [])
+    agent = agent or os.environ.get("FK_AGENT") or "cli"
+
+    number = store.next_experiment_number()
+    if baseline and number != 0 and not force:
+        print(f"error: baseline already recorded (next experiment is #{number}); use --force to re-baseline", file=sys.stderr)
+        return None
+    if baseline:
+        number = 0 if not force else number
+    incumbent = campaign.load_incumbent()
+    if not baseline and incumbent.number < 0:
+        print("error: no baseline yet -- run `fast-kernel baseline` first", file=sys.stderr)
+        return None
+    diff = "" if baseline else campaign.candidate_diff()
+    if not baseline and not diff.strip() and not force:
+        print("error: candidate/ is identical to the incumbent -- nothing to evaluate (use --force to re-measure)", file=sys.stderr)
+        return None
+
+    slug = slugify("baseline" if baseline else description)
+    exp_dir = campaign.experiment_dir(number, slug)
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    (exp_dir / "patch.diff").write_text(diff, encoding="utf-8")
+    if notes:
+        (exp_dir / "notes.md").write_text(notes, encoding="utf-8")
+    record: dict[str, Any] = {
+        "number": number, "name": slug, "status": "running", "description": description if not baseline else
+        (description or "baseline: unmodified reference path"), "techniques": techniques, "target": target, "agent": agent,
+        "parent": incumbent.number if not baseline else None, "parent_commit": incumbent.commit if not baseline else None,
+        "created_at": now_iso(), "dir": str(exp_dir), "patch_lines": len(diff.splitlines()), "baseline": baseline,
+        "primary_metric": goal.target_metric,
+    }
+    store.save_experiment(record)
+    store.event("experiment.started", number=number, description=record["description"], techniques=techniques, target=target, agent=agent)
+    store.set_agent("harness", "running", f"#{number} {record['description'][:80]}")
+
+    history = store.list_experiments()
+    history_path = exp_dir / "history.json"
+    write_json(history_path, [{k: e.get(k) for k in ("number", "status", "target", "techniques")} for e in history])
+    argv = [sys.executable, "-m", "fastkernel.harness.run", "--campaign", str(campaign.root), "--out", str(exp_dir),
+            "--history", str(history_path)]
+    if baseline:
+        argv.append("--noise-check")
+    do_profile = goal.bench.profile_every_experiment if profile is None else profile
+    if not do_profile:
+        argv.append("--no-profile")
+    if repeats:
+        argv += ["--repeats", str(repeats)]
+    if warmup:
+        argv += ["--warmup", str(warmup)]
+    if workloads:
+        argv += ["--workloads", ",".join(workloads)]
+    env = {"PYTHONUNBUFFERED": "1", "FK_EXPERIMENT": str(number), "FK_CAMPAIGN": str(campaign.root)}
+    started = time.perf_counter()
+    if not quiet:
+        print(f"== experiment #{number}: {record['description']}", flush=True)
+    result = run(argv, cwd=campaign.root, timeout=timeout or goal.bench.timeout_seconds, env=env)
+    duration = time.perf_counter() - started
+    (exp_dir / "run.log").write_text(result.stdout + ("\n--- stderr ---\n" + result.stderr if result.stderr else ""), encoding="utf-8")
+
+    metrics = read_json(exp_dir / "metrics.json", {}) or {}
+    gates = read_json(exp_dir / "gates.json", {}) or {}
+    prof = read_json(exp_dir / "profile.json", {}) or {}
+    value = _metric_value(metrics, goal.target_metric, metrics.get("primary"))
+    record.update({
+        "duration_s": round(duration, 1), "returncode": result.returncode, "timed_out": result.timed_out,
+        "primary_value": value, "metrics": _compact_metrics(metrics), "gates": _compact_gates(gates),
+        "kernel_count": prof.get("kernel_count"), "gpu_busy_ratio": prof.get("gpu_busy_ratio"), "wall_ms": prof.get("wall_ms"),
+        "top_targets": [{k: t.get(k) for k in ("id", "title", "fraction", "amdahl_gain", "category", "boundness")} for t in (prof.get("targets") or [])[:6]],
+        "candidate_report": metrics.get("candidate_report"), "peak_vram_mb": metrics.get("peak_vram_mb"),
+        "candidate_logs": (metrics.get("candidate_logs") or [])[-20:],
+    })
+    for key in ("rtf", "tokens_per_s", "fps", "audio_x_realtime"):
+        if key in metrics:
+            record[key] = metrics[key]
+
+    # ---- decision ---------------------------------------------------------------------
+    reason = ""
+    if result.timed_out:
+        status, reason = "crash", f"timeout after {goal.bench.timeout_seconds:.0f} s"
+    elif result.returncode == 3:
+        status, reason = "error", "harness/reference error (see run.log) -- candidate left in place"
+    elif result.returncode == 2 or metrics.get("error") or result.returncode not in (0,):
+        status, reason = "crash", _crash_reason(metrics, result)
+    elif not gates.get("passed"):
+        failed = gates.get("failed_checks") or []
+        status = "discard"
+        reason = "gates failed: " + "; ".join(f"{c['name']} ({c['detail'][:80]})" for c in failed[:4])
+    elif value is None:
+        status, reason = "crash", f"target metric '{goal.target_metric}' missing from metrics"
+    elif baseline:
+        status, reason = "baseline", "baseline recorded"
+    else:
+        improvement = _improvement(goal.minimize, incumbent.value, value)
+        threshold = max(goal.min_improvement, incumbent.noise_floor or 0.0)
+        record["improvement"] = improvement
+        record["threshold"] = threshold
+        if improvement is not None and improvement >= threshold:
+            status, reason = "keep", f"improved {improvement * 100:+.2f}% (threshold {threshold * 100:.2f}%)"
+        elif simpler and improvement is not None and improvement >= -threshold:
+            status, reason = "keep", f"kept as simpler code within noise ({improvement * 100:+.2f}%)"
+        else:
+            status = "discard"
+            reason = (f"no improvement: {improvement * 100:+.2f}% vs threshold {threshold * 100:.2f}%"
+                      if improvement is not None else "could not compare to incumbent")
+    record["status"] = status
+    record["reason"] = reason
+
+    baseline_rec = next((e for e in history if e.get("number") == 0), None) if not baseline else record
+    base_value = (baseline_rec or {}).get("primary_value")
+    if value and base_value:
+        record["speedup_vs_baseline"] = base_value / value if goal.minimize else value / base_value
+    if value and incumbent.value and not baseline:
+        record["speedup_vs_incumbent"] = incumbent.value / value if goal.minimize else value / incumbent.value
+
+    # ---- git / incumbent ----------------------------------------------------------------
+    if status in ("keep", "baseline"):
+        message = f"exp {number}: {record['description'][:72]}" if not baseline else "exp 0: baseline"
+        commit = campaign.commit_candidate(message, tag=f"exp-{number}")
+        record["commit"] = commit
+        noise = incumbent.noise_floor
+        if baseline:
+            ref = metrics.get("reference") or {}
+            noise = float(ref.get("noise") or 0.0)
+            record["noise_floor"] = noise
+        campaign.save_incumbent(Incumbent(number=number, commit=commit, value=value, metrics=record["metrics"], noise_floor=noise))
+        store.event("incumbent.promoted", number=number, commit=commit, value=value, speedup_vs_baseline=record.get("speedup_vs_baseline"))
+        if prof.get("targets"):
+            try:
+                from ..models.spec import load_spec
+                spec_notes = load_spec(campaign.root, goal.model, goal.model_args, goal.gates).notes
+            except Exception:  # noqa: BLE001
+                spec_notes = ""
+            caps = read_json(campaign.capabilities_path, {}) or {}
+            write_plan(campaign.root, profile=prof, targets=prof["targets"], device=caps.get("device_info", {}),
+                       workload=prof.get("workload", ""), experiment=number, spec_notes=spec_notes, backends=caps.get("backends"))
+    elif status in ("discard", "crash"):
+        record["commit"] = campaign.head()
+        campaign.restore_candidate()
+    else:
+        record["commit"] = campaign.head()
+
+    record["finished_at"] = now_iso()
+    store.save_experiment(record)
+    store.event("experiment.finished", number=number, status=status, reason=reason, value=value,
+                improvement=record.get("improvement"), speedup_vs_baseline=record.get("speedup_vs_baseline"),
+                kernel_count=record.get("kernel_count"), description=record["description"])
+    store.set_agent("harness", "idle", f"#{number} {status}")
+    results.append_row(campaign.results_path, exp=number, commit=record.get("commit", ""), status=status, metric=goal.target_metric,
+                       value=value, speedup=record.get("speedup_vs_baseline"),
+                       peak_vram_gb=(record.get("peak_vram_mb") or 0) / 1024 if record.get("peak_vram_mb") else None,
+                       gates=(gates.get("summary") or reason)[:60], description=record["description"])
+    knowledge.append_experiment(campaign.knowledge_path, record)
+    write_json(exp_dir / "record.json", record)
+    if not quiet:
+        print(render_verdict(campaign, record, gates, result.stdout + result.stderr), flush=True)
+    return record
+
+
+_EXC_RE = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt|Warning)\b.*")
+
+
+def _exception_line(text: str) -> str:
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    for line in reversed(lines):
+        if _EXC_RE.match(line):
+            return line
+    return lines[-1] if lines else ""
+
+
+def _crash_reason(metrics: dict[str, Any], result) -> str:
+    err = metrics.get("error") or ""
+    if err:
+        return f"crash in {metrics.get('phase', 'candidate')}: {_exception_line(err)[:220]}"
+    text = tail_text(result.stderr or result.stdout, 40)
+    return f"crash (exit {result.returncode}): {_exception_line(text)[:220] or 'no output'}"
+
+
+def _compact_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name, stats in (metrics.get("workloads") or {}).items():
+        out[name] = {k: v for k, v in stats.items() if k != "samples_ms"}
+    for key in ("latency_ms", "latency_min_ms", "peak_vram_mb", "rtf", "tokens_per_s", "fps", "audio_x_realtime", "primary", "seconds",
+                "candidate_build_seconds"):
+        if key in metrics:
+            out[key] = metrics[key]
+    if metrics.get("reference"):
+        out["reference"] = metrics["reference"]
+    return out
+
+
+def _compact_gates(gates: dict[str, Any]) -> dict[str, Any]:
+    if not gates:
+        return {}
+    return {"passed": gates.get("passed"), "summary": gates.get("summary"),
+            "stages": {k: {"passed": v.get("passed"), "skipped": v.get("skipped"), "checks": len(v.get("checks", []))} for k, v in (gates.get("stages") or {}).items()},
+            "failed_checks": gates.get("failed_checks", [])[:12],
+            "all_checks": [c for s in (gates.get("stages") or {}).values() for c in s.get("checks", [])][:80]}
+
+
+def render_verdict(campaign: Campaign, record: dict[str, Any], gates: dict[str, Any], log: str) -> str:
+    goal = campaign.goal
+    inc = campaign.load_incumbent()
+    lines = [f"== experiment #{record['number']} [{record['status'].upper()}] {record['description']}", f"   reason: {record.get('reason', '')}"]
+    if gates:
+        stages = " ".join(f"{k}:{'ok' if v.get('passed') else ('skip' if v.get('skipped') else 'FAIL')}" for k, v in (gates.get("stages") or {}).items())
+        lines.append(f"   gates: {stages}")
+        for check in (gates.get("failed_checks") or [])[:6]:
+            lines.append(f"     x {check['name']}: {check['detail'][:160]}")
+    value = record.get("primary_value")
+    extra = "".join(f", {k}={fmt(record[k])}" for k in ("rtf", "tokens_per_s", "fps") if record.get(k))
+    lines.append(f"   {goal.target_metric}: {fmt(value)} (incumbent {fmt(inc.value)}, baseline speedup {fmt(record.get('speedup_vs_baseline'), 3)}x{extra})")
+    if record.get("kernel_count") is not None:
+        lines.append(f"   kernels/launch: {record['kernel_count']}, GPU busy {fmt((record.get('gpu_busy_ratio') or 0) * 100, 3)}%, "
+                     f"wall {fmt(record.get('wall_ms'))} ms, duration {record.get('duration_s')} s")
+    if record.get("top_targets"):
+        top = record["top_targets"][0]
+        lines.append(f"   next best target: {top.get('title')} ({top.get('id')}) share {fmt((top.get('fraction') or 0) * 100, 3)}% gain {fmt((top.get('amdahl_gain') or 0) * 100, 3)}%")
+    if record["status"] in ("crash", "error"):
+        lines.append("   --- log tail ---")
+        lines.extend("   " + line for line in tail_text(log, 25).splitlines())
+    lines.append("FK_RESULT " + json.dumps({k: record.get(k) for k in ("number", "status", "reason", "primary_value", "improvement",
+                                                                      "speedup_vs_baseline", "kernel_count", "commit")}))
+    return "\n".join(lines)
