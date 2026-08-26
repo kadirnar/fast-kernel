@@ -39,13 +39,6 @@ whole generation) and `prefill` (512 tokens). Keep `AutoModelForCausalLM` semant
 - tolerant: >= 90 % identical greedy tokens (bf16 reordering is allowed to flip near-ties).
 - `model_args.variant: 350m` gives a faster development loop with the same architecture.
 
-# Where to start
-
-1. Decode is a chain of GEMV-shaped launches: static KV cache + CUDA graph per decode step
-   (`generate(cache_implementation="static")` + `torch.compile(mode="reduce-overhead")` or a hand-captured step).
-2. Fuse RMSNorm into the following projection; merge w1/w3 with a fused silu*mul epilogue.
-3. `Lfm2ShortConv`: one fused kernel for in_proj chunking, B*x gating, causal depthwise conv and C*y.
-4. Prefill: SDPA flash backend, bf16 GEMM tuning, fused MLP epilogues.
 
 # Quality contract
 
@@ -53,3 +46,11 @@ Faster is only accepted without a loss of quality. The default policy `gates.pre
 the outputs must match the original model (identical discrete outputs, floating-point outputs within
 the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
 agent never loosens gates, skips stages or shrinks workloads.
+
+# How to decide what to optimize
+
+Nothing is prescribed. Measure first: `fast-kernel baseline` and `fast-kernel profile` rank the targets of
+*this* model on *this* machine in PLAN.md; `capabilities.json` says which backends compile here. Every
+hypothesis comes from those measurements and from what earlier experiments taught (KNOWLEDGE.md), never
+from assumptions about the hardware. Any technique and any backend may be tried; only the quality
+contract limits what is kept.

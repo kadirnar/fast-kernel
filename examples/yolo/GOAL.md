@@ -34,11 +34,6 @@ output (B, 300, 6)). Reference is fp32 eval. Any `weights` (yolo11n.pt, yolov8n.
 - strict: boxes within 0.5 px, confidences within 1e-3, identical classes for detections with conf > 0.25.
 - tolerant: 2 px / 1e-2 (allows fp16/bf16 convolutions).
 
-# Where to start
-
-1. Batch 1 is launch bound (hundreds of tiny convs): CUDA-graph the whole forward (static 640x640 input).
-2. channels-last + cuDNN benchmark, then fp16 convs in tolerant mode.
-3. Fuse Conv+SiLU epilogues and Concat/Upsample copies (Triton or torch.compile max-autotune).
 
 # Quality contract
 
@@ -46,3 +41,11 @@ Faster is only accepted without a loss of quality. The default policy `gates.pre
 the outputs must match the original model (identical discrete outputs, floating-point outputs within
 the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
 agent never loosens gates, skips stages or shrinks workloads.
+
+# How to decide what to optimize
+
+Nothing is prescribed. Measure first: `fast-kernel baseline` and `fast-kernel profile` rank the targets of
+*this* model on *this* machine in PLAN.md; `capabilities.json` says which backends compile here. Every
+hypothesis comes from those measurements and from what earlier experiments taught (KNOWLEDGE.md), never
+from assumptions about the hardware. Any technique and any backend may be tried; only the quality
+contract limits what is kept.

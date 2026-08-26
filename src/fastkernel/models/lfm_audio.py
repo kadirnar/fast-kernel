@@ -26,11 +26,9 @@ class LFMAudioSpec(ModelSpec):
     notes = """\
 LFM2-Audio-1.5B = LFM2(.5) 1.2B hybrid conv/attention backbone + FastConformer audio encoder (115M, 17 layers,
 d=512, mel 128 @ 16 kHz) + Mimi-compatible audio decoder (8 codebooks) driven by a 6-layer depthformer
-(RQ-transformer, d=1024). Generation is autoregressive over interleaved text/audio tokens: every step runs
-the backbone once (GEMV shaped, launch bound) and the depthformer 8x for the codebooks, then Mimi decodes
-the codes. Hot paths: the per-step backbone (static-cache CUDA graph / reduce-overhead compile), the
-depthformer loop (fuse the 8 codebook steps), the FastConformer encoder for ASR (conv subsampling +
-relative-position attention), and the Mimi decoder (see the Mimi example).
+(RQ-transformer, d=1024). Generation is autoregressive over interleaved text/audio tokens: each step runs
+the backbone once and the depthformer once per codebook, then the Mimi decoder turns codes into audio.
+Where the time goes on your machine is what `fast-kernel profile` measures.
 """
     greedy_match_threshold = {"strict": 1.0, "tolerant": 0.98}
 

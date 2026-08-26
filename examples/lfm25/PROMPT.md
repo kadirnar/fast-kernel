@@ -8,9 +8,9 @@ Optimize the LFM2.5 model.
 
 Optimize LiquidAI's LFM2.5-1.2B-Instruct (`transformers.AutoModelForCausalLM`, `Lfm2ForCausalLM`, bf16)
 with fast-kernel: make greedy decoding of 64 tokens after a 64-token prompt (batch 1, the primary
-workload `decode`) as fast as possible, keep prefill of 512 tokens fast too, and keep improving for as
-long as I let you run. Speed is only accepted without any loss of quality: the optimized model must
-generate exactly the same tokens as the original.
+workload `decode`) as fast as possible on this machine, keep prefill of 512 tokens fast too, and keep
+improving for as long as I let you run. Speed is only accepted without any loss of quality: the
+optimized model must generate exactly the same tokens as the original.
 
 ## What to read before doing anything (in this order)
 
@@ -26,9 +26,9 @@ generate exactly the same tokens as the original.
 4. The model spec: `src/fastkernel/models/lfm25.py (and hf_causal_lm.py it extends)` — it defines the reference oracle, the workloads, the exact
    correctness checks and the hotspot hints. Read the model's own source too (`transformers/models/lfm2/modeling_lfm2.py` in site-packages).
 5. The campaign, once it exists: `campaigns/lfm25/GOAL.md` (objective, metric, quality policy),
-   `PLAN.md` (ranked targets with shapes and technique status), `RECIPES.md` (measured, ordered recipes),
-   `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics,
-   gates, profile, patch, log of every experiment).
+   `PLAN.md` (ranked targets measured on this machine, with shapes and technique status), `KNOWLEDGE.md`
+   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)
 
@@ -38,23 +38,34 @@ generate exactly the same tokens as the original.
 2. `uv run fast-kernel doctor` — torch/CUDA/backends/claude present; apply its fix hints
    (`uv sync --extra cuda`).
 3. `uv run fast-kernel init lfm25` (only if the campaign does not exist).
-4. `uv run fast-kernel probe` — GPU roofline numbers and one compiled probe kernel per backend
-   (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub kernels) → `capabilities.json`.
-   A backend that fails with a host-compiler/nvcc error is fixed with
-   `uv run fast-kernel toolchain install --cuda 13.3` and probed again — never recorded as a hardware limit.
+4. `uv run fast-kernel probe` — measures this GPU (bandwidth, TFLOPS, launch latency) and compiles one
+   probe kernel per backend (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub
+   kernels) → `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
+   install --cuda <version>`, `uv pip install ...`) and probed again — never recorded as a limitation.
 5. `uv run fast-kernel baseline` — experiment #0: the unmodified reference model passes its own five
-   gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N CUDA-synchronised
-   runs), the noise floor is measured, and the profile ranks the targets into `PLAN.md`.
+   gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N synchronised runs),
+   the noise floor is measured, and the profile ranks the targets into `PLAN.md`.
 6. `uv run fast-kernel dashboard --root campaigns` in the background — the live graph of every
    experiment (it prints the URL; tell me once).
 7. `uv run fast-kernel loop start` — the Stop hook keeps this session iterating.
-8. The loop, forever: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md /
-   RECIPES.md → one hypothesis with the largest end-to-end gain (share x (1 - 1/expected), untried
-   first, recipe order, lower tier first) → implement it only under `candidate/`
+8. The loop, forever: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
+   one hypothesis with the largest measured end-to-end gain (share x (1 - 1/expected), untried first,
+   larger measured share first, lower tier first) → implement it only under `candidate/`
    (`candidate/__init__.py: apply(model, ctx)`, kernels in `candidate/kernels/`) → self-test on the real
    shapes → `fast-kernel eval -m "<one line>" --technique <ids> --target <id>` → read the verdict →
    `fast-kernel note "<insight with numbers>"` → next. Each experiment builds on the accepted incumbent
    (git branch `fast-kernel/lfm25`, tags `exp-N`); rejected ones are reverted, their patches kept.
+
+## Discover, do not assume
+
+Nothing about the hardware or the model is given to you in advance and nothing constrains what you may
+try. Where the time goes is measured by `fast-kernel profile` on this machine; which backends compile is
+measured by `fast-kernel probe`; whether an idea helps is measured by `fast-kernel eval`. Every hypothesis
+comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md). Any technique from
+`playbook.py` and any backend may be tried in any order; ideas that failed here are facts about this
+model on this machine, recorded with numbers, never generalised. Never write a device or vendor name into
+notes, code or reports, and never conclude that something is unsupported — fix the environment, re-probe,
+or take another backend.
 
 ## Multi-agent structure (use it)
 
@@ -80,13 +91,10 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 - Quality contract: outputs must match the original model — identical greedy tokens on the decode workload, top-1 agreement >= 99.5 % and top-5 overlap >= 0.9 on the prefill logits, identical results on the odd-length and short edge cases. Under the default `strict`
   policy this is checked on every workload, deterministically, and on the edge inputs. You never change
   the policy; if an idea needs looser numerics, write "needs the human's decision" in KNOWLEDGE.md and move on.
-- No hardware limitations: `capabilities.json` is evidence. Missing packages, headers, nvcc, weights →
-  install/fix (`uv pip install`, `fast-kernel toolchain install`), re-probe, continue.
 - Crashes: `fast-kernel show <N> --log`; trivial (typo, import, stride, meta tensor) → fix and rerun
   once; fundamental → note it and take the next idea; the same crash three times → abandon the approach.
-- Plateaus (5 discards on a target): change technique tier, then backend
-  (Triton ↔ TileLang ↔ CuTe DSL ↔ CUDA C++ ↔ hub kernels), then target; then widen the scope (combine
-  kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
+- Plateaus (5 discards on a target): change technique tier, then backend, then target; then widen the
+  scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
 - Report as short lines: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
   Never end a turn with a question. Never ask whether to continue.
 
@@ -94,14 +102,4 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 
 Only I stop this: when I write "Stop optimizing." run `fast-kernel loop stop` (and `fast-kernel stop`
 if headless workers run). The campaign is persisted; the same sentence later continues it.
-
-## Where the time goes and what to try
-
-Decode is a chain of GEMV-shaped launches per token (10 double-gated ShortConv blocks + 6 GQA attention
-blocks with q/k RMSNorm, SwiGLU MLPs, RMSNorms): launch-bound. In order (see RECIPES.md): static KV
-cache + CUDA-graph decode step (or `torch.compile(mode="reduce-overhead")` on the per-token forward);
-fused RMSNorm into the next projection; merged gate/up projections with a fused silu*mul epilogue; one
-fused ShortConv kernel (in_proj chunking, B*x gate, causal depthwise conv L=3, C*y gate, cache update);
-for prefill: SDPA flash / hub flash-attn, bf16 GEMM tile tuning, fused MLP epilogues. Use
-`model_args.variant=350m` only if I say so.
 ```

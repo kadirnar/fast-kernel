@@ -18,10 +18,10 @@ class YOLOSpec(ModelSpec):
     display_name = "Ultralytics YOLO (torch module)"
     hub_id = "ultralytics/yolo26n"
     notes = """\
-YOLO26n/11n are tiny CNNs (~2.6M params): at batch 1 and 640x640 the GPU is idle most of the time
-(hundreds of small conv/act/concat launches), so CUDA graphs and conv+SiLU epilogue fusion dominate;
-at larger batches conv GEMMs (cuDNN, channels-last, bf16/fp16) and the C2PSA attention block matter.
-The fused model (Conv+BN folded) is the reference; keep the (B, 300, 6) end-to-end output contract.
+YOLO26n/11n: a small CNN (Conv+BN folded into Conv, SiLU activations, C3k2 bottleneck stacks, a C2PSA
+attention block, Concat/Upsample feature fusion) with an end-to-end NMS-free detection head producing
+(B, 300, 6) = xyxy, confidence, class. The fused model is the reference. Where the time goes on your
+machine is what `fast-kernel profile` measures.
 """
     default_rtol = {"strict": 1e-3, "tolerant": 2e-2}
     default_atol = {"strict": 1e-3, "tolerant": 5e-2}

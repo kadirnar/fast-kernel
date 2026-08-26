@@ -23,7 +23,7 @@ pre/post hooks on every `nn.Module`. The chrome trace is parsed: each GPU kernel
 launching CPU op (External id / correlation), the op to the innermost `fk::` scope, and — when the
 op ran outside any `forward()` (Mimi's `quantizer.encode`, `MimiEuclideanCodebook.quantize`,
 `generate()` loops) — to the innermost Python frame (`python_function` events) whose file/line falls
-inside a model class's source range. Result: 0 unattributed microseconds on Mimi; per-module GPU
+inside a model class's source range. Result: complete attribution of GPU time; per-module GPU
 time, kernel count, top ops, plus wall time, GPU-busy time (union of kernel intervals), launch count.
 
 Wall time is re-measured without the profiler; `gpu_busy_ratio < 0.6` flags a launch/overhead-bound

@@ -13,9 +13,9 @@ The GPU and the incumbent are shared, so the protocol is: **explore in parallel,
 
 1. `uv run fast-kernel ideas` → pick N distinct targets (top Amdahl gain, one technique each).
 2. For each target: `uv run fast-kernel worktree create eng-<target>` (prints an absolute path; a private
-   git worktree branched from the incumbent with PLAN.md/KNOWLEDGE.md/RECIPES.md/incumbent copied in).
+   git worktree branched from the incumbent with PLAN.md/KNOWLEDGE.md/incumbent copied in).
 3. Spawn N `fk-kernel-engineer` subagents in parallel. Each prompt contains: the worktree path, the
-   target id + class + shapes from PLAN.md, the technique and backend, the relevant RECIPES.md entry, and
+   target id + class + shapes from PLAN.md, the technique and backend, and
    the instruction to finish with `cd <worktree> && uv run fast-kernel propose -m "..." --technique <id> --target <id>`.
    Engineers self-test on the GPU (small scripts) but do not run `fast-kernel eval` in parallel.
 4. When they return: `cd <campaign> && uv run fast-kernel inbox` — applies each proposal on the current

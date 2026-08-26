@@ -1,7 +1,7 @@
 """Self-contained CUDA toolchains from pip wheels (no system install, no sudo).
 
 The CUDA runtime that torch ships is fixed (e.g. 13.0 for torch cu130) but its nvcc frontend may not
-accept the machine's host compiler (gcc 16 needs nvcc >= 13.3). A toolchain is the wheel set
+accept the machine's host compiler (a newer nvcc minor version usually does). A toolchain is the wheel set
 {nvcc, cccl, crt, nvvm, runtime headers} of one CUDA version installed into an isolated directory:
 
     fast-kernel toolchain install --cuda 13.3      -> ~/.cache/fast-kernel/toolchains/cuda-13.3/nvidia/cu13

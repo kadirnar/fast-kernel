@@ -22,29 +22,13 @@ class MimiSpec(ModelSpec):
     default_rtol = {"strict": 2e-4, "tolerant": 5e-2}
     default_atol = {"strict": 2e-5, "tolerant": 5e-2}
     notes = """\
-Mimi = SEANet conv encoder (causal Conv1d + ELU residual blocks, strided downsampling) -> 8-layer causal
-transformer (RoPE, sliding window, LayerScale) -> downsample -> 32-stage residual vector quantizer (one
-semantic + 31 acoustic codebooks, each a 2048x256 Euclidean codebook search) -> transformer -> SEANet
-decoder with ConvTranspose1d upsampling. 12.5 Hz frames, 24 kHz audio, batch 1 is the deployment case.
-
-Measured facts on an RTX 5070 Ti (fast-mimi, 2026-08): the stock transformers path launches ~1250
-kernels for 1 s of audio (~19 ms round trip) while the GPU is busy only a few hundred microseconds ->
-overwhelmingly launch/overhead bound. A rewrite into ~100 fused Triton kernels captured in CUDA graphs
-(bf16 tensor-core GEMMs, fp32 residual stream, exact two-stage RVQ search: fp16 coarse distances on tensor
-cores + exact fp32 re-rank of the top-2, grid barrier between the 32 sequential codebook stages) reached
-~0.8 ms (~24x). Ideas that did NOT pay off there (re-measure before assuming): persistent single-launch
-transformer (2x slower than 4 kernels), split-K one-tile-per-CTA transformer, INT8 weights (latency-bound,
-no gain), tf32x3 exact RVQ (slower than fp16-coarse + fp32 re-rank), fused conv0+first residual block.
-Ordering that worked: CUDA graphs on the stock model first (biggest single win), then fuse the RVQ
-search, then the transformer blocks (LN+QKV+RoPE, attention+O+residual, LN+FC1+GELU, FC2), then the
-SEANet convs as implicit GEMMs with fused ELU epilogues.
-
-Graph-capture gotchas in transformers' Mimi: `MimiConv1d` keeps kernel_size/stride/padding_total as
-int64 *buffers on the GPU* and computes `extra_padding` as a CUDA scalar that `F.pad` converts with
-`.item()` -> a host sync per conv layer (illegal under CUDA-graph capture, wasteful in eager mode);
-`padding_left/padding_right` are derived from those buffers at init and stay *meta* tensors after
-from_pretrained (never call int() on them -- recompute from the int padding_total). Replace the
-padding arithmetic with Python ints before capturing.
+Mimi = SEANet convolutional encoder (causal Conv1d layers with ELU residual blocks and strided
+downsampling) -> 8-layer causal transformer (RoPE, sliding window, LayerScale) -> downsampling conv ->
+residual vector quantizer with 32 stages (1 semantic + 31 acoustic codebooks, each a Euclidean search over
+2048 x 256 entries, executed sequentially on the residual) -> transformer -> SEANet decoder with
+ConvTranspose1d upsampling. 12.5 Hz frames, 24 kHz audio. The discrete codes come from the quantizer's
+argmin; `MimiModel.encode`/`decode` call the quantizer through `.encode()`/`.quantize()` methods rather
+than `forward()`. Where the time goes on your machine is what `fast-kernel profile` measures.
 """
 
     def __init__(self, campaign_root, args=None, policy=None):

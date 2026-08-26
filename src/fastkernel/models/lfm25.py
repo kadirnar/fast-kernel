@@ -24,11 +24,8 @@ class LFM25Spec(HFCausalLMSpec):
 LFM2.5-1.2B: 16 blocks = 10 double-gated short-convolution blocks (Lfm2ShortConv: in_proj to 3x width,
 chunk into B, C, x; B*x -> causal depthwise conv1d with L_cache=3 -> C*y -> out_proj) + 6 GQA attention
 blocks (32 heads, 8 KV heads, q/k RMSNorm, RoPE), SwiGLU MLP (hidden 2048, intermediate 12288), RMSNorm,
-vocab 65536, bf16. Decode (the primary workload) is a chain of GEMV-shaped projections per token: it is
-launch/overhead bound at batch 1, so a static-KV-cache CUDA-graph decode step (or torch.compile
-mode=reduce-overhead) is the first thing to try, followed by fusing RMSNorm into the next projection,
-merging w1/w3 with a fused silu*mul epilogue, and a fused gating+depthwise-conv kernel for ShortConv.
-Prefill is GEMM bound: bf16 tensor cores, fused attention (SDPA flash), fused MLP epilogues.
+vocab 65536, bf16. The primary workload is greedy decoding (one token per forward with a KV cache); the
+secondary workload is prefill. Where the time goes on your machine is what `fast-kernel profile` measures.
 """
 
     @property

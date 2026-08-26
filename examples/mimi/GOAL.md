@@ -37,14 +37,6 @@ fp32 model (TF32 off). Every accepted experiment must keep the public API
 - Measured on the primary workload `roundtrip_1s`; sweeps at 0.25 s and 5 s must stay correct.
 - Edge gates: 50 ms input, non-multiple-of-frame length, batch 2.
 
-# Where to start (measured priors, see PLAN.md after `fast-kernel profile`)
-
-1. The stock path is launch bound (~1250 kernels for 1 s). CUDA-graph the encode and decode calls
-   (`fastkernel.backends.graphs.Graphed`, shape buckets by audio length).
-2. Fuse the codebook search (`MimiEuclideanCodebook`): distance + argmin without cdist, all 32 stages in
-   one kernel.
-3. Fuse the transformer blocks (LN+QKV+RoPE, attention+O+residual, LN+FC1+GELU, FC2).
-4. Rewrite SEANet convolutions as implicit GEMMs with fused ELU epilogues.
 
 # Quality contract
 
@@ -52,3 +44,11 @@ Faster is only accepted without a loss of quality. The default policy `gates.pre
 the outputs must match the original model (identical discrete outputs, floating-point outputs within
 the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
 agent never loosens gates, skips stages or shrinks workloads.
+
+# How to decide what to optimize
+
+Nothing is prescribed. Measure first: `fast-kernel baseline` and `fast-kernel profile` rank the targets of
+*this* model on *this* machine in PLAN.md; `capabilities.json` says which backends compile here. Every
+hypothesis comes from those measurements and from what earlier experiments taught (KNOWLEDGE.md), never
+from assumptions about the hardware. Any technique and any backend may be tried; only the quality
+contract limits what is kept.

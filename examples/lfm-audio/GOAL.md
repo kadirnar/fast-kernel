@@ -36,12 +36,6 @@ with greedy-equivalent sampling (seeded); secondary: ASR of a 2 s utterance. The
 - strict: text tokens and audio codes identical to the reference run; decoded waveform SNR >= 40 dB.
 - tolerant: >= 90 % identical tokens, SNR >= 20 dB.
 
-# Where to start
-
-1. Every generation step runs the 1.2B backbone once (GEMV shaped) and the depthformer 8x: capture the
-   per-step backbone forward (static cache) and the depthformer loop in CUDA graphs.
-2. Fused RMSNorm / SwiGLU / ShortConv kernels shared with the LFM2.5 campaign.
-3. The Mimi decoder (see the Mimi campaign) and the FastConformer encoder (conv subsampling + attention).
 
 # Quality contract
 
@@ -49,3 +43,11 @@ Faster is only accepted without a loss of quality. The default policy `gates.pre
 the outputs must match the original model (identical discrete outputs, floating-point outputs within
 the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
 agent never loosens gates, skips stages or shrinks workloads.
+
+# How to decide what to optimize
+
+Nothing is prescribed. Measure first: `fast-kernel baseline` and `fast-kernel profile` rank the targets of
+*this* model on *this* machine in PLAN.md; `capabilities.json` says which backends compile here. Every
+hypothesis comes from those measurements and from what earlier experiments taught (KNOWLEDGE.md), never
+from assumptions about the hardware. Any technique and any backend may be tried; only the quality
+contract limits what is kept.

@@ -32,7 +32,7 @@ The harness is the referee for all of them: acceptance is computed, not argued.
 
 Explore in parallel, measure serially. The orchestrator creates one private worktree per target
 (`fast-kernel worktree create eng-<target>` → `<campaign>/.fast-kernel/worktrees/eng-<target>`, branch
-`worker/eng-<target>` from the incumbent, with PLAN.md / KNOWLEDGE.md / RECIPES.md / incumbent.json copied
+`worker/eng-<target>` from the incumbent, with PLAN.md / KNOWLEDGE.md / incumbent.json copied
 in), spawns one `fk-kernel-engineer` per worktree, and each engineer ends with
 `fast-kernel propose -m "..." --technique ... --target ...` — which commits its `candidate/` changes and
 writes the diff plus metadata to the main campaign's `.fast-kernel/inbox/`. The orchestrator then runs

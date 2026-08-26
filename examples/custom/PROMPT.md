@@ -8,9 +8,9 @@ Optimize the PyTorch model in ./spec.py.
 
 Optimize my PyTorch model with fast-kernel: after `fast-kernel init custom --name <name>` edit
 `campaigns/<name>/spec.py` so `build_model()` loads my model from the path I gave (see `/fk-add-model`
-for workloads and checks), then make its forward pass as fast as possible and keep improving for as
-long as I let you run. Speed is only accepted without any loss of quality: outputs must stay equal to the
-original model within the spec's tolerance.
+for workloads and checks), then make its forward pass as fast as possible on this machine and keep
+improving for as long as I let you run. Speed is only accepted without any loss of quality: outputs must
+stay equal to the original model within the spec's tolerance.
 
 ## What to read before doing anything (in this order)
 
@@ -26,9 +26,9 @@ original model within the spec's tolerance.
 4. The model spec: `campaigns/<name>/spec.py (`build_model()` returns my nn.Module in eval mode; the `Spec` class defines workloads and checks)` — it defines the reference oracle, the workloads, the exact
    correctness checks and the hotspot hints. Read the model's own source too (my model's source file).
 5. The campaign, once it exists: `campaigns/<name>/GOAL.md` (objective, metric, quality policy),
-   `PLAN.md` (ranked targets with shapes and technique status), `RECIPES.md` (measured, ordered recipes),
-   `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics,
-   gates, profile, patch, log of every experiment).
+   `PLAN.md` (ranked targets measured on this machine, with shapes and technique status), `KNOWLEDGE.md`
+   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)
 
@@ -38,23 +38,34 @@ original model within the spec's tolerance.
 2. `uv run fast-kernel doctor` — torch/CUDA/backends/claude present; apply its fix hints
    (`uv sync --extra cuda`).
 3. `uv run fast-kernel init custom` (only if the campaign does not exist).
-4. `uv run fast-kernel probe` — GPU roofline numbers and one compiled probe kernel per backend
-   (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub kernels) → `capabilities.json`.
-   A backend that fails with a host-compiler/nvcc error is fixed with
-   `uv run fast-kernel toolchain install --cuda 13.3` and probed again — never recorded as a hardware limit.
+4. `uv run fast-kernel probe` — measures this GPU (bandwidth, TFLOPS, launch latency) and compiles one
+   probe kernel per backend (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub
+   kernels) → `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
+   install --cuda <version>`, `uv pip install ...`) and probed again — never recorded as a limitation.
 5. `uv run fast-kernel baseline` — experiment #0: the unmodified reference model passes its own five
-   gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N CUDA-synchronised
-   runs), the noise floor is measured, and the profile ranks the targets into `PLAN.md`.
+   gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N synchronised runs),
+   the noise floor is measured, and the profile ranks the targets into `PLAN.md`.
 6. `uv run fast-kernel dashboard --root campaigns` in the background — the live graph of every
    experiment (it prints the URL; tell me once).
 7. `uv run fast-kernel loop start` — the Stop hook keeps this session iterating.
-8. The loop, forever: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md /
-   RECIPES.md → one hypothesis with the largest end-to-end gain (share x (1 - 1/expected), untried
-   first, recipe order, lower tier first) → implement it only under `candidate/`
+8. The loop, forever: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
+   one hypothesis with the largest measured end-to-end gain (share x (1 - 1/expected), untried first,
+   larger measured share first, lower tier first) → implement it only under `candidate/`
    (`candidate/__init__.py: apply(model, ctx)`, kernels in `candidate/kernels/`) → self-test on the real
    shapes → `fast-kernel eval -m "<one line>" --technique <ids> --target <id>` → read the verdict →
    `fast-kernel note "<insight with numbers>"` → next. Each experiment builds on the accepted incumbent
    (git branch `fast-kernel/custom`, tags `exp-N`); rejected ones are reverted, their patches kept.
+
+## Discover, do not assume
+
+Nothing about the hardware or the model is given to you in advance and nothing constrains what you may
+try. Where the time goes is measured by `fast-kernel profile` on this machine; which backends compile is
+measured by `fast-kernel probe`; whether an idea helps is measured by `fast-kernel eval`. Every hypothesis
+comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md). Any technique from
+`playbook.py` and any backend may be tried in any order; ideas that failed here are facts about this
+model on this machine, recorded with numbers, never generalised. Never write a device or vendor name into
+notes, code or reports, and never conclude that something is unsupported — fix the environment, re-probe,
+or take another backend.
 
 ## Multi-agent structure (use it)
 
@@ -80,13 +91,10 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 - Quality contract: outputs must match the original model — outputs allclose to the fp32 reference at the spec tolerance on every workload and edge input. Under the default `strict`
   policy this is checked on every workload, deterministically, and on the edge inputs. You never change
   the policy; if an idea needs looser numerics, write "needs the human's decision" in KNOWLEDGE.md and move on.
-- No hardware limitations: `capabilities.json` is evidence. Missing packages, headers, nvcc, weights →
-  install/fix (`uv pip install`, `fast-kernel toolchain install`), re-probe, continue.
 - Crashes: `fast-kernel show <N> --log`; trivial (typo, import, stride, meta tensor) → fix and rerun
   once; fundamental → note it and take the next idea; the same crash three times → abandon the approach.
-- Plateaus (5 discards on a target): change technique tier, then backend
-  (Triton ↔ TileLang ↔ CuTe DSL ↔ CUDA C++ ↔ hub kernels), then target; then widen the scope (combine
-  kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
+- Plateaus (5 discards on a target): change technique tier, then backend, then target; then widen the
+  scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
 - Report as short lines: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
   Never end a turn with a question. Never ask whether to continue.
 
@@ -94,11 +102,4 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 
 Only I stop this: when I write "Stop optimizing." run `fast-kernel loop stop` (and `fast-kernel stop`
 if headless workers run). The campaign is persisted; the same sentence later continues it.
-
-## Where the time goes and what to try
-
-`fast-kernel profile` first: GPU busy < 60 % of wall time → CUDA graphs (whole forward, static shapes) or
-torch.compile reduce-overhead; then the top target by Amdahl gain: fused norms/activations/residual
-chains, merged weights with epilogue fusion for GEMMs, channels-last + implicit GEMM for convolutions,
-SDPA flash or fused kernels for attention, fused kernels for reductions/argmin. Re-profile after every keep.
 ```

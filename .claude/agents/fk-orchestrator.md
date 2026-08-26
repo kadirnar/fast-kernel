@@ -15,7 +15,7 @@ the frozen reference.
 
 Per round:
 1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; PLAN.md, KNOWLEDGE.md,
-   RECIPES.md. Stale plan → spawn `fk-profiler` (or run `fast-kernel profile`).
+   Stale plan → spawn `fk-profiler` (or run `fast-kernel profile`).
 2. Pick the top targets by Amdahl gain. One target → do the experiment yourself (`/fk-experiment`).
    Several targets → `/fk-parallel`: one `fk-kernel-engineer` per target, each in its own worktree
    (`fast-kernel worktree create eng-<target>`), each ending with `fast-kernel propose`; then you run

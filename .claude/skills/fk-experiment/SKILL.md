@@ -18,12 +18,12 @@ uv run fast-kernel ideas                    # untried target x technique pairs b
 uv run fast-kernel history -n 5             # what just happened and why
 ```
 Then read `PLAN.md` (regenerate with `uv run fast-kernel profile` if it predates the incumbent),
-`KNOWLEDGE.md` (insights first), `RECIPES.md` (measured, ordered recipes for this model) and, if the
+`KNOWLEDGE.md` (insights first) and, if the
 last experiment failed, `uv run fast-kernel show <N> --log`.
 
 ## 2. Choose one hypothesis
 
-Score = share × (1 − 1/expected), from `ideas`. Tie-breaks: recipe order for this model > untried >
+Score = share × (1 − 1/expected), from `ideas`. Tie-breaks: untried > larger measured share >
 lower tier > lower risk > smaller diff. A focus given as `--target/--technique` wins unless it is
 clearly exhausted. Write the hypothesis as one line before touching code:
 `"<what> for <target class> via <technique/backend>; expect ~<x>% end-to-end because <share/boundness>"`.

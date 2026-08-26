@@ -48,9 +48,9 @@ GPU-busy ratio and the top three targets from PLAN.md — that is the user's fir
 Each iteration is the `/fk-experiment` procedure, in full:
 
 1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; read PLAN.md,
-   KNOWLEDGE.md and the campaign's RECIPES.md (measured, ordered recipes for this model).
+   KNOWLEDGE.md.
 2. One hypothesis with the largest expected end-to-end gain = share × (1 − 1/expected). Prefer:
-   untried > recipe order > lower tier > lower risk. Never resubmit an identical failed edit.
+   untried > larger measured share > lower tier > lower risk. Never resubmit an identical failed edit.
 3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
    `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
 4. `fast-kernel eval -m "<one line>" --technique <ids> --target <id>`; on a trivial crash fix once and

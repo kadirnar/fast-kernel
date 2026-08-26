@@ -35,3 +35,11 @@ Faster is only accepted without a loss of quality. The default policy `gates.pre
 the outputs must match the original model (identical discrete outputs, floating-point outputs within
 the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
 agent never loosens gates, skips stages or shrinks workloads.
+
+# How to decide what to optimize
+
+Nothing is prescribed. Measure first: `fast-kernel baseline` and `fast-kernel profile` rank the targets of
+*this* model on *this* machine in PLAN.md; `capabilities.json` says which backends compile here. Every
+hypothesis comes from those measurements and from what earlier experiments taught (KNOWLEDGE.md), never
+from assumptions about the hardware. Any technique and any backend may be tried; only the quality
+contract limits what is kept.

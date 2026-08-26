@@ -32,8 +32,7 @@ profile / ideas  →  ONE hypothesis (target × technique)  →  edit candidate/
 learn (KNOWLEDGE.md, results.tsv)  ←  keep / revert (harness decides)  ←  fast-kernel eval
 ```
 
-1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md`, the campaign's
-   `RECIPES.md` (measured, ordered recipes for this model) and the last experiments
+1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md` and the last experiments
    (`fast-kernel history -n 5`). If `PLAN.md` is stale, `fast-kernel profile`.
 2. Pick **one** hypothesis with the largest expected *end-to-end* gain (Amdahl: share × (1 − 1/expected)).
    Prefer untried target × technique pairs; never resubmit an identical failed edit.
@@ -62,7 +61,7 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
 - **No hardware limitations.** `capabilities.json` is evidence about *this* machine (which backends
   compiled, measured bandwidth/TFLOPS, launch latency). If a backend fails, fix the environment —
   `fast-kernel toolchain install --cuda 13.3` gives a self-contained nvcc/CCCL/NVVM set from pip wheels
-  (needed when the host gcc is newer than torch's bundled nvcc supports), `ensure_cuda_home()` wires
+  (needed when the host compiler is newer than torch's bundled nvcc supports), `ensure_cuda_home()` wires
   CUDA_HOME/PATH, `uv pip install` adds packages — or use another backend; never write "not supported
   on this GPU" as a conclusion. Re-run `fast-kernel probe` after every environment fix.
 - **Keep the public API of the model.** Same inputs, same outputs (within the gate policy), same
