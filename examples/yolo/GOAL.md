@@ -29,7 +29,7 @@ protected: [GOAL.md, spec.py, harness/**, .fast-kernel/**, experiments/**, resul
 Speed up the fused Ultralytics YOLO26n `DetectionModel` (plain torch module, end-to-end NMS-free head,
 output (B, 300, 6)). Reference is fp32 eval. Any `weights` (yolo11n.pt, yolov8n.pt, custom) work.
 
-# Policy
+# Policy (the human decides; the agent never changes it)
 
 - strict: boxes within 0.5 px, confidences within 1e-3, identical classes for detections with conf > 0.25.
 - tolerant: 2 px / 1e-2 (allows fp16/bf16 convolutions).
@@ -39,3 +39,10 @@ output (B, 300, 6)). Reference is fp32 eval. Any `weights` (yolo11n.pt, yolov8n.
 1. Batch 1 is launch bound (hundreds of tiny convs): CUDA-graph the whole forward (static 640x640 input).
 2. channels-last + cuDNN benchmark, then fp16 convs in tolerant mode.
 3. Fuse Conv+SiLU epilogues and Concat/Upsample copies (Triton or torch.compile max-autotune).
+
+# Quality contract
+
+Faster is only accepted without a loss of quality. The default policy `gates.precision: strict` means
+the outputs must match the original model (identical discrete outputs, floating-point outputs within
+the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
+agent never loosens gates, skips stages or shrinks workloads.

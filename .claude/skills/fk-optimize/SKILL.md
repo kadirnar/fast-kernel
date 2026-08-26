@@ -1,41 +1,52 @@
 ---
 name: fk-optimize
-description: Start or continue an endless fast-kernel optimization campaign for a model (mimi, lfm25, lfm-audio, yolo, a campaign directory, or any torch module). Use when the user says "optimize <model>", "make <model> faster", "accelerate the Mimi codec", "continue the campaign", or "run kernel experiments".
-argument-hint: <model-or-campaign-dir> [--precision strict|tolerant] [--set key=value]
-allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Read, Edit, Write, MultiEdit, Glob, Grep
+description: Start or continue the fast-kernel optimization loop for a model, from plain text. Use whenever the user asks to optimize, accelerate, speed up or make faster a model - "Optimize the Mimi codec model.", "make LFM2.5 faster", "optimize the LFM2 audio model", "optimize the YOLO model", "optimize the PyTorch model in ./x.py", "continue the optimization".
+argument-hint: <what the user said>
+allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Bash(curl -s http://127.0.0.1:*), Read, Edit, Write, MultiEdit, Glob, Grep
 ---
 
-# /fk-optimize — the endless loop, from a single line of text
+# /fk-optimize — the endless loop, from one sentence
 
-Arguments: `$ARGUMENTS` (a built-in model name — `mimi`, `lfm25`, `lfm-audio`, `yolo`, `custom` — or an
-existing campaign directory; optional `--precision` / `--set key=value` overrides for GOAL.md).
+The user writes plain text (`$ARGUMENTS`). Map it to a model, never ask them to choose options:
 
-## 1. Prepare (idempotent)
+| the user mentions | model name |
+|---|---|
+| Mimi, codec, kyutai | `mimi` |
+| LFM2.5, LFM 2.5, Liquid | `lfm25` |
+| LFM2 audio, LFM audio, speech-to-speech | `lfm-audio` |
+| YOLO, detection | `yolo` |
+| a file or directory path | `custom` — run the `/fk-add-model` procedure on that path first |
+| an existing `campaigns/<name>` directory | continue that campaign |
+
+Quality rule: the precision policy in GOAL.md stays `strict` (identical outputs) unless the user
+explicitly asked for something else in their own words. Never pass `--precision`, never edit GOAL.md.
+
+## 1. Prepare (idempotent; say what you are doing in one line each)
 
 ```bash
-uv run fast-kernel doctor                      # torch/CUDA/backends/claude present? fix hints if not
-uv run fast-kernel init <model> [--precision ..] [--set ..]   # skip if the campaign dir already exists
+uv run fast-kernel doctor                     # torch/CUDA/backends present? apply its fix hints
+uv run fast-kernel init <model>               # skip if campaigns/<model> already exists
 cd campaigns/<model>
-uv run fast-kernel probe                       # GPU + roofline + backend compile probes -> capabilities.json
-uv run fast-kernel baseline                    # experiment #0 + noise floor + PLAN.md (skip if it exists)
-uv run fast-kernel loop start                  # Stop hook keeps this session iterating
+uv run fast-kernel probe                      # GPU + backend probes -> capabilities.json
+uv run fast-kernel baseline                   # experiment #0 + noise floor + PLAN.md (skip if it exists)
+uv run fast-kernel loop start                 # the Stop hook keeps this session iterating
 ```
 
-Start the live graph in the background if it is not running: `uv run fast-kernel dashboard --root campaigns`
-(http://127.0.0.1:8765) and tell the user the URL once.
+Start the dashboard in the background if `curl -s http://127.0.0.1:8765/api/campaigns` does not answer:
+`uv run fast-kernel dashboard --root campaigns` — then tell the user the printed URL once.
 
-If `uv sync --extra cuda` has not been run, run it. If a model extra is missing (`--extra yolo`,
-`--extra audio`, `--extra tilelang`, `--extra cute`, `--extra hub`), install it. When `probe` shows
-`tilelang` or `cuda-cpp` not READY with a host-compiler error (gcc newer than nvcc supports, `cudafe++`
-crash, missing `nvcc`), run `uv run fast-kernel toolchain install --cuda 13.3` and probe again — never
-treat a toolchain gap as a hardware limit.
+Missing pieces are fixed, never reported as limits: `uv sync --extra cuda` if torch is missing; the
+model extras (`--extra yolo`, `--extra audio`, `--extra tilelang`, `--extra cute`, `--extra hub`); and
+`uv run fast-kernel toolchain install --cuda 13.3` when `probe` shows `tilelang` or `cuda-cpp` failing
+with a host-compiler error. Re-probe after every fix.
 
 ## 2. Loop (never stops on its own)
 
-Repeat the `/fk-experiment` procedure forever: status → ideas → one hypothesis → edit `candidate/` →
-`fast-kernel eval` → `fast-kernel note` → next. Follow AGENTS.md for rules, decision logic, crash protocol
-and plateau strategy. Delegate to `fk-kernel-engineer`, `fk-verifier`, `fk-profiler` subagents when it
-helps; use `/fk-parallel` for several workers.
+Repeat the `/fk-experiment` procedure: status → ideas → one hypothesis → edit `candidate/` only →
+`fast-kernel eval` → `fast-kernel note` → next. Follow AGENTS.md (quality contract, rules, crash
+protocol, plateau strategy). Delegate to `fk-kernel-engineer`, `fk-verifier`, `fk-profiler` subagents
+when it helps.
 
-Report progress to the user only as short interleaved lines (experiment number, status, metric, speedup);
-never end your turn with a question. The loop ends when the user says so (`fast-kernel loop stop`).
+Report progress as short lines (experiment number, kept/discarded, latency, speedup). Never end your
+turn with a question. The loop ends only when the user says to stop ("Stop optimizing." →
+`fast-kernel loop stop`).

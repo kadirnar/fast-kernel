@@ -33,7 +33,7 @@ that matter on a single GPU: `decode` (primary; 64 greedy tokens after a 64-toke
 whole generation) and `prefill` (512 tokens). Keep `AutoModelForCausalLM` semantics: `generate()` and
 `forward()` must keep working with the same inputs.
 
-# Policy
+# Policy (the human decides; the agent never changes it)
 
 - strict: generated tokens identical; prefill top-1 identical on >= 99.5 % positions, top-5 overlap >= 0.9.
 - tolerant: >= 90 % identical greedy tokens (bf16 reordering is allowed to flip near-ties).
@@ -46,3 +46,10 @@ whole generation) and `prefill` (512 tokens). Keep `AutoModelForCausalLM` semant
 2. Fuse RMSNorm into the following projection; merge w1/w3 with a fused silu*mul epilogue.
 3. `Lfm2ShortConv`: one fused kernel for in_proj chunking, B*x gating, causal depthwise conv and C*y.
 4. Prefill: SDPA flash backend, bf16 GEMM tuning, fused MLP epilogues.
+
+# Quality contract
+
+Faster is only accepted without a loss of quality. The default policy `gates.precision: strict` means
+the outputs must match the original model (identical discrete outputs, floating-point outputs within
+the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
+agent never loosens gates, skips stages or shrinks workloads.

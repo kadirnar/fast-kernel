@@ -1,3 +1,7 @@
-Optimize the model in this fast-kernel campaign: read AGENTS.md, GOAL.md, spec.py, PLAN.md and KNOWLEDGE.md,
-then run the endless experiment loop (profile -> highest-Amdahl untried idea -> edit candidate/ only ->
-`fast-kernel eval` -> learn -> repeat). Never stop to ask; the harness decides keep/revert.
+Type this in Claude Code (from the repository root):
+
+    Optimize the PyTorch model in ./spec.py.
+
+Nothing else is needed. The agent prepares the campaign, measures the original model, opens the
+dashboard and keeps experimenting. Outputs must stay identical to the original model (see GOAL.md,
+"Quality contract"). To end it, type: Stop optimizing.

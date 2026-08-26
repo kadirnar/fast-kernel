@@ -28,3 +28,10 @@ protected: [GOAL.md, spec.py, harness/**, .fast-kernel/**, experiments/**, resul
 Edit `spec.py` (`build_model`, and optionally the `Spec` class for custom workloads / comparisons), then
 `fast-kernel baseline`. Everything else is generic: gates compare candidate outputs to the fp32 reference
 with allclose; benchmarks use the fixed protocol; profiling ranks hotspots by Amdahl gain.
+
+# Quality contract
+
+Faster is only accepted without a loss of quality. The default policy `gates.precision: strict` means
+the outputs must match the original model (identical discrete outputs, floating-point outputs within
+the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
+agent never loosens gates, skips stages or shrinks workloads.

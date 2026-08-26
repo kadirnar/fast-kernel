@@ -1,3 +1,7 @@
-Optimize the YOLO campaign in this directory with fast-kernel: read AGENTS.md, GOAL.md, PLAN.md and
-KNOWLEDGE.md, then run the endless experiment loop. Batch 1 is launch bound: CUDA-graph the forward
-first, then channels-last/cuDNN tuning, then fused Conv+SiLU epilogues and copy elimination.
+Type this in Claude Code (from the repository root):
+
+    Optimize the YOLO model.
+
+Nothing else is needed. The agent prepares the campaign, measures the original model, opens the
+dashboard and keeps experimenting. Outputs must stay identical to the original model (see GOAL.md,
+"Quality contract"). To end it, type: Stop optimizing.

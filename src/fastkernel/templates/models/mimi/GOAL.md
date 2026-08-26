@@ -29,7 +29,7 @@ Optimize `kyutai/mimi` (transformers `MimiModel`) end to end: SEANet encoder, en
 fp32 model (TF32 off). Every accepted experiment must keep the public API
 (`encode(audio, padding_mask).audio_codes`, `decode(codes, padding_mask).audio_values`) intact.
 
-# Policy
+# Policy (the human decides; the agent never changes it)
 
 - `precision: strict` = the discrete codes must be identical to the fp32 oracle and decoded audio must be
   allclose (rtol 2e-4, atol 2e-5). Switch to `tolerant` (code match >= 85 %, decode SNR >= 35 dB,
@@ -45,3 +45,10 @@ fp32 model (TF32 off). Every accepted experiment must keep the public API
    one kernel.
 3. Fuse the transformer blocks (LN+QKV+RoPE, attention+O+residual, LN+FC1+GELU, FC2).
 4. Rewrite SEANet convolutions as implicit GEMMs with fused ELU epilogues.
+
+# Quality contract
+
+Faster is only accepted without a loss of quality. The default policy `gates.precision: strict` means
+the outputs must match the original model (identical discrete outputs, floating-point outputs within
+the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
+agent never loosens gates, skips stages or shrinks workloads.

@@ -24,8 +24,8 @@ class HFCausalLMSpec(ModelSpec):
     # bf16 reference => tolerant tolerances even in strict mode are meaningful; argmax agreement is the real gate.
     default_rtol = {"strict": 2e-2, "tolerant": 6e-2}
     default_atol = {"strict": 2e-2, "tolerant": 8e-2}
-    top1_threshold = {"strict": 0.995, "tolerant": 0.97}
-    greedy_match_threshold = {"strict": 1.0, "tolerant": 0.9}
+    top1_threshold = {"strict": 0.995, "tolerant": 0.99}
+    greedy_match_threshold = {"strict": 1.0, "tolerant": 0.98}
 
     @property
     def hub_id(self) -> str:  # type: ignore[override]

@@ -32,7 +32,7 @@ the codes. Hot paths: the per-step backbone (static-cache CUDA graph / reduce-ov
 depthformer loop (fuse the 8 codebook steps), the FastConformer encoder for ASR (conv subsampling +
 relative-position attention), and the Mimi decoder (see the Mimi example).
 """
-    greedy_match_threshold = {"strict": 1.0, "tolerant": 0.9}
+    greedy_match_threshold = {"strict": 1.0, "tolerant": 0.98}
 
     def __init__(self, campaign_root, args=None, policy=None):
         super().__init__(campaign_root, args, policy)
@@ -194,7 +194,7 @@ relative-position attention), and the Mimi decoder (see the Mimi example).
             ref_audio, cand_audio = reference["audio"], candidate["audio"].to(reference["audio"].device)
             n = min(ref_audio.shape[-1], cand_audio.shape[-1])
             snr = snr_db(ref_audio[..., :n], cand_audio[..., :n]) if n else 0.0
-            need = 40.0 if key == "strict" else 20.0
+            need = 40.0 if key == "strict" else 30.0
             checks.append(GateCheck(f"{workload.name}/audio_snr", snr >= need, snr, need, f"{snr:.1f} dB over {n} samples"))
         return checks or [GateCheck(f"{workload.name}/outputs", False, detail="no comparable outputs")]
 

@@ -1,8 +1,9 @@
 """Kyutai Mimi neural audio codec (transformers.MimiModel): encode / decode / roundtrip workloads.
 
 Gates (strict): discrete codes identical to the fp32 oracle, decoded waveform allclose.
-Gates (tolerant): >= 85 % code match, decode(reference codes) SNR >= 35 dB, reconstruction SNR vs the
-input within 0.5 dB of the reference (what a bf16 tensor-core implementation achieves).
+Gates (tolerant, opt-in by the human): decode(reference codes) SNR >= 40 dB, reconstruction SNR vs the
+input within 0.25 dB of the reference on every workload, and >= 80 % identical codes as a sanity floor
+(bf16 tensor-core arithmetic flips near-tie codes without changing reconstruction quality).
 """
 from __future__ import annotations
 
@@ -159,7 +160,7 @@ padding arithmetic with Python ints before capturing.
                 return [GateCheck(f"{workload.name}/codes_shape", False, detail=f"{tuple(cand_codes.shape)} != {tuple(ref_codes.shape)}")]
             match = (ref_codes == cand_codes).float().mean().item()
             per_cb = (ref_codes == cand_codes).float().mean(dim=(0, 2))
-            thr = 1.0 if strict else 0.85
+            thr = 1.0 if strict else 0.80
             checks.append(GateCheck(f"{workload.name}/code_match", match >= thr, match, thr,
                                     f"{match * 100:.2f}% codes identical; worst codebook {per_cb.min().item() * 100:.1f}%"))
             ref_audio, cand_audio = reference["audio"], candidate["audio"].to(reference["audio"].device)
@@ -178,7 +179,7 @@ padding arithmetic with Python ints before capturing.
                     length = min(x.shape[-1], ref_audio.shape[-1])
                     ref_rec = snr_db(x[..., :length], ref_audio[..., :length])
                     cand_rec = snr_db(x[..., :length], cand_audio[..., :length])
-                    checks.append(GateCheck(f"{workload.name}/reconstruction_snr", cand_rec >= ref_rec - 0.5, cand_rec, ref_rec - 0.5,
+                    checks.append(GateCheck(f"{workload.name}/reconstruction_snr", cand_rec >= ref_rec - 0.25, cand_rec, ref_rec - 0.25,
                                             f"reference {ref_rec:.2f} dB vs candidate {cand_rec:.2f} dB (vs input)"))
                 snr = snr_db(ref_audio, cand_audio)
                 checks.append(GateCheck(f"{workload.name}/audio_snr_own_codes", True, snr, None, f"{snr:.1f} dB (informational)"))
@@ -188,7 +189,7 @@ padding arithmetic with Python ints before capturing.
             if tuple(reference.shape) != tuple(cand.shape):
                 return [GateCheck(f"{workload.name}/codes_shape", False, detail=f"{tuple(cand.shape)} != {tuple(reference.shape)}")]
             match = (reference == cand).float().mean().item()
-            thr = 1.0 if strict else 0.85
+            thr = 1.0 if strict else 0.80
             return [GateCheck(f"{workload.name}/code_match", match >= thr, match, thr, f"{match * 100:.2f}% codes identical")]
         # decode of reference codes: waveform must match closely in both policies
         cand = candidate.to(reference.device)
@@ -197,7 +198,7 @@ padding arithmetic with Python ints before capturing.
         if strict:
             return compare_trees(reference, cand, rtol=rtol, atol=atol, prefix=f"{workload.name}/audio")
         snr = snr_db(reference, cand)
-        return [GateCheck(f"{workload.name}/audio_snr", snr >= 35.0, snr, 35.0, f"{snr:.1f} dB vs fp32 reference")]
+        return [GateCheck(f"{workload.name}/audio_snr", snr >= 40.0, snr, 40.0, f"{snr:.1f} dB vs fp32 reference")]
 
     # the harness calls this before compare() so tolerant mode can measure reconstruction vs the input
     _last_inputs: dict[str, Any] = {}

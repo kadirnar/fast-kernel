@@ -1,4 +1,7 @@
-Optimize the LFM2.5 campaign in this directory with fast-kernel: read AGENTS.md, GOAL.md, PLAN.md and
-KNOWLEDGE.md, then run the endless experiment loop (profile -> highest-Amdahl untried idea -> edit
-candidate/ only -> `fast-kernel eval` -> learn -> repeat). Decode is launch bound: start with a static
-KV cache + CUDA-graph decode step, then fused norms/MLP epilogues, then a fused ShortConv kernel.
+Type this in Claude Code (from the repository root):
+
+    Optimize the LFM2.5 model.
+
+Nothing else is needed. The agent prepares the campaign, measures the original model, opens the
+dashboard and keeps experimenting. Outputs must stay identical to the original model (see GOAL.md,
+"Quality contract"). To end it, type: Stop optimizing.

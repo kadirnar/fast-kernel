@@ -1,5 +1,7 @@
-Optimize the Mimi codec campaign in this directory with fast-kernel. Read AGENTS.md, GOAL.md, PLAN.md,
-RECIPES.md and KNOWLEDGE.md, then run the experiment loop indefinitely: profile, pick the highest-Amdahl
-untried idea, edit only candidate/, `fast-kernel eval`, learn, repeat. Never stop to ask; the harness
-decides keep/revert. Start with CUDA graphs on the stock path, then the fused RVQ search, then the
-transformer blocks, then the SEANet convolutions.
+Type this in Claude Code (from the repository root):
+
+    Optimize the Mimi codec model.
+
+Nothing else is needed. The agent prepares the campaign, measures the original model, opens the
+dashboard and keeps experimenting. Outputs must stay identical to the original model (see GOAL.md,
+"Quality contract"). To end it, type: Stop optimizing.

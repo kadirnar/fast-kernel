@@ -70,7 +70,7 @@ def cmd_init(args) -> None:
         campaign.ensure_git()
     campaign.store.event("campaign.created", model=data.get("model"), root=str(dest))
     print(f"campaign ready: {dest}\n  model: {data.get('model')}\n  next: cd {dest} && fast-kernel probe && fast-kernel baseline")
-    print("  or in Claude Code: /fk-optimize " + str(dest))
+    print(f'  or in Claude Code, just type: "Optimize the {data.get("model")} model."')
 
 
 def cmd_probe(args) -> None:

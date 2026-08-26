@@ -10,6 +10,20 @@ Reference designs this program follows: karpathy/autoresearch (fixed evaluation,
 editable file, never stop) and RightNow-AI/autokernel (profile → Amdahl-rank → five-stage correctness
 harness → six-tier playbook → results.tsv).
 
+## Quality contract (binding)
+
+The user accepts speed only without a loss of quality. Concretely:
+
+- Every candidate is compared with the unmodified reference model on identical, seeded inputs.
+- Under the default `strict` policy the outputs must match: identical discrete outputs (Mimi codes,
+  LLM tokens, YOLO classes) and floating-point outputs within the spec's tolerance; results must be
+  deterministic and must also hold on the edge workloads (short, odd-length, batched inputs).
+- The precision policy in `GOAL.md` is set by the human. You never change it, never argue for it,
+  and never pass `--precision` yourself. If an idea only works with looser numerics, record it in
+  KNOWLEDGE.md as "needs the human's decision" and move on to the next idea.
+- Exactness is engineered, not hoped for: fp32 accumulation, fixed-order reductions (no float
+  atomics), exact argmin via coarse pass + fp32 re-rank, reference tie-breaking, reference padding.
+
 ## The loop (one experiment)
 
 ```
@@ -41,7 +55,8 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
   PreToolUse hook blocks such edits; if you think the harness is wrong, write it in KNOWLEDGE.md and
   continue — do not work around it.
 - **Never weaken a gate to pass it.** Correctness is decided by the harness against the frozen
-  reference. A failed gate is a discarded experiment, not a negotiation.
+  reference. A failed gate is a discarded experiment, not a negotiation. The quality contract above
+  is part of the harness: do not edit GOAL.md's policy, do not skip stages, do not shrink workloads.
 - **Never fabricate or hand-edit measurements.** Numbers come from `fast-kernel eval` only.
 - **No hardware limitations.** `capabilities.json` is evidence about *this* machine (which backends
   compiled, measured bandwidth/TFLOPS, launch latency). If a backend fails, fix the environment —
@@ -84,8 +99,9 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
   the new profile (the ranking changes after every keep).
 - **Never done**: when every listed idea is tried, re-profile, look at the top kernels list, question
   data movement (dtypes, layouts, allocations), and invent new hypotheses. Record them in KNOWLEDGE.md.
-- Numerical policy is a lever: if `GOAL.md` allows `tolerant`, bf16 tensor cores unlock large wins;
-  under `strict`, keep fp32 accumulation and exact argmins (coarse pass + exact re-rank).
+- Numerics are not a lever you pull: under `strict` (the default) every kernel reproduces the reference
+  outputs (fp32 accumulation, exact argmins via coarse pass + exact re-rank). Only a human may set a
+  different policy in `GOAL.md`.
 
 ## Backends (skills) — decision table
 

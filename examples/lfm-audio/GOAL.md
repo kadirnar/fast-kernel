@@ -31,7 +31,7 @@ FastConformer encoder and a Mimi-compatible 8-codebook decoder). Primary workloa
 with greedy-equivalent sampling (seeded); secondary: ASR of a 2 s utterance. The returned object must keep
 `generate_sequential(**chat, max_new_tokens=...)` semantics.
 
-# Policy
+# Policy (the human decides; the agent never changes it)
 
 - strict: text tokens and audio codes identical to the reference run; decoded waveform SNR >= 40 dB.
 - tolerant: >= 90 % identical tokens, SNR >= 20 dB.
@@ -42,3 +42,10 @@ with greedy-equivalent sampling (seeded); secondary: ASR of a 2 s utterance. The
    per-step backbone forward (static cache) and the depthformer loop in CUDA graphs.
 2. Fused RMSNorm / SwiGLU / ShortConv kernels shared with the LFM2.5 campaign.
 3. The Mimi decoder (see the Mimi campaign) and the FastConformer encoder (conv subsampling + attention).
+
+# Quality contract
+
+Faster is only accepted without a loss of quality. The default policy `gates.precision: strict` means
+the outputs must match the original model (identical discrete outputs, floating-point outputs within
+the spec tolerance), deterministically, on the edge workloads too. Only a human changes this file; the
+agent never loosens gates, skips stages or shrinks workloads.

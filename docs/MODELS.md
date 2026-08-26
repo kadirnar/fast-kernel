@@ -1,5 +1,9 @@
 # Model specs
 
+The default policy everywhere is `strict`: outputs identical to the original model. `tolerant` exists
+for a human who explicitly accepts numerically different but quality-preserving outputs; the agent never
+selects it.
+
 A spec (`fastkernel.models.ModelSpec`) answers five questions; the harness does the rest.
 
 | method | answer |
@@ -16,16 +20,17 @@ A spec (`fastkernel.models.ModelSpec`) answers five questions; the harness does 
 ## Built-ins
 
 - **mimi** (`transformers.MimiModel`, `kyutai/mimi`): roundtrip/encode/decode at 1 s (+0.25 s, 5 s
-  sweeps, noise input), edge: 50 ms, odd length, batch 2. Strict: identical codes + waveform allclose
-  (rtol 2e-4 / atol 2e-5); tolerant: code match >= 85 %, decode SNR >= 35 dB, reconstruction SNR within
-  0.5 dB of the reference. Hints cover the codebook search, attention, MLP, convs, LayerScale.
+  sweeps, noise input), edge: 50 ms, odd length, batch 2. Strict (default): identical codes + waveform allclose
+  (rtol 2e-4 / atol 2e-5); tolerant (human opt-in): decode SNR >= 40 dB, reconstruction SNR within
+  0.25 dB of the reference on every workload, >= 80 % identical codes. Hints cover the codebook search, attention, MLP, convs, LayerScale.
 - **lfm25** / **hf-causal-lm** (`Lfm2ForCausalLM` via `AutoModelForCausalLM`): decode (64 greedy tokens
-  after a 64-token chat-templated prompt; primary) and prefill (512 tokens, last-8 logits). Strict:
-  identical tokens, top-1 >= 99.5 %, top-5 overlap >= 0.9; tolerant: >= 90 % tokens. `variant` selects
+  after a 64-token chat-templated prompt; primary) and prefill (512 tokens, last-8 logits). Strict (default):
+  identical tokens, top-1 >= 99.5 %, top-5 overlap >= 0.9; tolerant (human opt-in): >= 98 % identical
+  tokens, top-1 >= 99 %. `variant` selects
   1.2B-Instruct/Base/Thinking, 350M, 230M.
 - **lfm-audio** (`liquid_audio.LFM2AudioModel`, LFM2.5-Audio-1.5B / LFM2-Audio-1.5B): TTS of one
   sentence (greedy-equivalent sampling, seeded) -> codes + Mimi-decoded waveform (primary), ASR of a
-  synthetic 2 s utterance (or `asr_audio` wav). Strict: identical tokens, SNR >= 40 dB.
+  synthetic 2 s utterance (or `asr_audio` wav). Strict (default): identical tokens, SNR >= 40 dB; tolerant (human opt-in): >= 98 % tokens, SNR >= 30 dB.
 - **yolo** (Ultralytics `YOLO(weights).model`, fused): detect batch 1 @ 640 (primary) and batch 8;
   edge 320 px and batch 3. End-to-end heads compare boxes (<= 0.5 px strict), confidences (1e-3) and
   classes for detections with conf > 0.25; raw heads use allclose.
