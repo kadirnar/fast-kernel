@@ -32,8 +32,9 @@ profile / ideas  →  ONE hypothesis (target × technique)  →  edit candidate/
 learn (KNOWLEDGE.md, results.tsv)  ←  keep / revert (harness decides)  ←  fast-kernel eval
 ```
 
-1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md`, and the last
-   experiments (`fast-kernel history -n 5`). If `PLAN.md` is stale, `fast-kernel profile`.
+1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md`, the campaign's
+   `RECIPES.md` (measured, ordered recipes for this model) and the last experiments
+   (`fast-kernel history -n 5`). If `PLAN.md` is stale, `fast-kernel profile`.
 2. Pick **one** hypothesis with the largest expected *end-to-end* gain (Amdahl: share × (1 − 1/expected)).
    Prefer untried target × technique pairs; never resubmit an identical failed edit.
 3. Implement it under `candidate/` only (`candidate/__init__.py: apply(model, ctx)`, kernels in

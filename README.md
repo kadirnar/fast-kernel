@@ -26,7 +26,9 @@ Type this in Claude Code:
 Optimize the Mimi codec model.
 ```
 
-That is all. The agent sets up `campaigns/mimi/`, measures the original model, opens the
+That is all. Start Claude Code inside the `fast-kernel` folder: the sentence is turned into a plan
+(`fast-kernel resolve` maps "Mimi codec" to the model and to the folder `campaigns/mimi/`, creating
+it the first time and reusing it later). The agent measures the original model there, opens the
 dashboard (it prints the address, usually http://127.0.0.1:8765) and starts experimenting.
 
 Other models work the same way:

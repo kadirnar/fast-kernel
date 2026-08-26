@@ -1,52 +1,88 @@
 ---
 name: fk-optimize
-description: Start or continue the fast-kernel optimization loop for a model, from plain text. Use whenever the user asks to optimize, accelerate, speed up or make faster a model - "Optimize the Mimi codec model.", "make LFM2.5 faster", "optimize the LFM2 audio model", "optimize the YOLO model", "optimize the PyTorch model in ./x.py", "continue the optimization".
-argument-hint: <what the user said>
-allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Bash(curl -s http://127.0.0.1:*), Read, Edit, Write, MultiEdit, Glob, Grep
+description: Start or continue the fast-kernel optimization loop for a model, from plain text. Use whenever the user asks to optimize, accelerate, speed up or make faster a model - "Optimize the Mimi codec model.", "make LFM2.5 faster", "optimize the LFM2 audio model", "optimize the YOLO model", "optimize the PyTorch model in ./x.py", "continue optimizing" - and for "Stop optimizing." / "how is the optimization going".
+argument-hint: <the user's sentence>
+allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Bash(curl -s http://127.0.0.1:*), Bash(cat *), Bash(ls *), Read, Edit, Write, MultiEdit, Glob, Grep
 ---
 
-# /fk-optimize — the endless loop, from one sentence
+# /fk-optimize — operating procedure
 
-The user writes plain text (`$ARGUMENTS`). Map it to a model, never ask them to choose options:
+The user typed a sentence; everything else is yours. Do not ask which model, mode, folder or option
+they want. Do not end a turn with a question. The harness decides what is kept; you decide what to try.
 
-| the user mentions | model name |
-|---|---|
-| Mimi, codec, kyutai | `mimi` |
-| LFM2.5, LFM 2.5, Liquid | `lfm25` |
-| LFM2 audio, LFM audio, speech-to-speech | `lfm-audio` |
-| YOLO, detection | `yolo` |
-| a file or directory path | `custom` — run the `/fk-add-model` procedure on that path first |
-| an existing `campaigns/<name>` directory | continue that campaign |
-
-Quality rule: the precision policy in GOAL.md stays `strict` (identical outputs) unless the user
-explicitly asked for something else in their own words. Never pass `--precision`, never edit GOAL.md.
-
-## 1. Prepare (idempotent; say what you are doing in one line each)
+## 0. Resolve the sentence to a folder (always first)
 
 ```bash
-uv run fast-kernel doctor                     # torch/CUDA/backends present? apply its fix hints
-uv run fast-kernel init <model>               # skip if campaigns/<model> already exists
-cd campaigns/<model>
-uv run fast-kernel probe                      # GPU + backend probes -> capabilities.json
-uv run fast-kernel baseline                   # experiment #0 + noise floor + PLAN.md (skip if it exists)
-uv run fast-kernel loop start                 # the Stop hook keeps this session iterating
+uv run fast-kernel resolve "$ARGUMENTS" --json
 ```
 
-Start the dashboard in the background if `curl -s http://127.0.0.1:8765/api/campaigns` does not answer:
-`uv run fast-kernel dashboard --root campaigns` — then tell the user the printed URL once.
+It returns `action` (`optimize` | `stop` | `status` | `unknown`), `model`, `campaign` (an absolute path,
+`<repo>/campaigns/<model>`, reused if it already exists), `exists`, `has_baseline`, `probed`,
+`loop_active`, `dashboard_url`, `missing_extras`, and `steps` — the exact remaining commands, each
+prefixed with the right `cd`. Follow `steps` in order. Every later command in this procedure is run as
+`cd <campaign> && uv run fast-kernel ...`; never rely on the shell's current directory.
 
-Missing pieces are fixed, never reported as limits: `uv sync --extra cuda` if torch is missing; the
-model extras (`--extra yolo`, `--extra audio`, `--extra tilelang`, `--extra cute`, `--extra hub`); and
-`uv run fast-kernel toolchain install --cuda 13.3` when `probe` shows `tilelang` or `cuda-cpp` failing
-with a host-compiler error. Re-probe after every fix.
+- `action: stop` → run the steps (`loop stop`, `stop`), confirm in one line, done.
+- `action: status` → run the steps, summarise (experiments, incumbent vs baseline, last three, next idea).
+- `action: unknown` → tell the user the models you know (from `hint`) in one line; that is the only
+  question you may ask.
+- `model: custom` with `custom_path` → after `init`, edit `<campaign>/spec.py` so `build_model()` imports
+  and returns the user's `nn.Module` from that path (see `/fk-add-model`), then continue.
 
-## 2. Loop (never stops on its own)
+## 1. Prepare (only what `steps` lists; each is idempotent)
 
-Repeat the `/fk-experiment` procedure: status → ideas → one hypothesis → edit `candidate/` only →
-`fast-kernel eval` → `fast-kernel note` → next. Follow AGENTS.md (quality contract, rules, crash
-protocol, plateau strategy). Delegate to `fk-kernel-engineer`, `fk-verifier`, `fk-profiler` subagents
-when it helps.
+| step | what it does | if it fails |
+|---|---|---|
+| `uv sync --extra cuda [--extra audio\|yolo]` | GPU runtime / model extras | read the resolver error; never continue on CPU |
+| `fast-kernel init <model>` | creates `campaigns/<model>` from the template (GOAL.md, candidate/, notes) | — |
+| `fast-kernel probe` | GPU roofline + compiles a probe kernel per backend → `capabilities.json` | a backend not READY with a host-compiler/nvcc error → `uv run fast-kernel toolchain install --cuda 13.3`, probe again; still failing → note it in KNOWLEDGE.md, other backends carry the campaign |
+| `fast-kernel baseline` | experiment #0: reference model, 5 gates on itself, benchmark, noise floor, PLAN.md | crash → `fast-kernel show 0 --log`; usually a missing model download (network) or VRAM held by another process (`nvidia-smi`); fix and rerun |
+| dashboard | `fast-kernel dashboard --root campaigns` in the background; prints the URL (8765 or the next free port) | tell the user the URL once |
+| `fast-kernel loop start` | sets `.fast-kernel/loop.active`; the Stop hook now keeps this session iterating | — |
 
-Report progress as short lines (experiment number, kept/discarded, latency, speedup). Never end your
-turn with a question. The loop ends only when the user says to stop ("Stop optimizing." →
-`fast-kernel loop stop`).
+Report each step as one short line. After `baseline`, quote the baseline number, the kernel count, the
+GPU-busy ratio and the top three targets from PLAN.md — that is the user's first real information.
+
+## 2. Loop (until the user says stop)
+
+Each iteration is the `/fk-experiment` procedure, in full:
+
+1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; read PLAN.md,
+   KNOWLEDGE.md and the campaign's RECIPES.md (measured, ordered recipes for this model).
+2. One hypothesis with the largest expected end-to-end gain = share × (1 − 1/expected). Prefer:
+   untried > recipe order > lower tier > lower risk. Never resubmit an identical failed edit.
+3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
+   `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
+4. `fast-kernel eval -m "<one line>" --technique <ids> --target <id>`; on a trivial crash fix once and
+   rerun; otherwise accept the revert.
+5. `fast-kernel note "<what you learned, with numbers>" --tags <ids>`.
+6. Print one line: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>× vs baseline · next: <idea>`.
+
+Delegate when it is faster: `fk-profiler` (re-rank after a surprising result), `fk-kernel-engineer`
+(a kernel for one target), `fk-verifier` (a failed gate), `fk-reviewer` (before an expensive eval),
+`fk-librarian` (a reference or template). Several targets at once → `/fk-parallel`.
+
+## 3. Quality contract (never negotiable)
+
+The precision policy in GOAL.md stays as the human set it (`strict` by default: identical discrete
+outputs, floats within the spec tolerance, deterministic, edge inputs). Never pass `--precision`, never
+edit GOAL.md/spec.py, never skip stages or shrink workloads, never hand-edit results. If an idea needs
+looser numerics, write "needs the human's decision" in KNOWLEDGE.md and take the next idea.
+
+## 4. Plateaus, errors, environment
+
+- 5 consecutive discards on a target → switch tier, then backend (Triton ↔ TileLang ↔ CuTe ↔ CUDA C++
+  ↔ hub kernels), then target; then widen scope (combine kept kernels, remove copies between them),
+  then `fast-kernel profile` and re-read the top kernels list. The list of ideas is never empty.
+- crash → `fast-kernel show <N> --log`; trivial → fix and rerun once; fundamental → `note` and move on;
+  same crash three times → abandon the approach.
+- GPU shared with another process (high utilisation in `nvidia-smi`) → measurements are noisy; the
+  harness's noise floor protects acceptance, but say so once to the user.
+- Anything missing (package, header, nvcc, weights) is installed or fixed, then `probe` again. A backend
+  that cannot be made to compile is evidence in KNOWLEDGE.md, not a conclusion about the hardware.
+
+## 5. Stopping and resuming
+
+"Stop optimizing." (or `fast-kernel loop stop`) ends the loop after the current experiment. The campaign
+is persisted (git lineage, results.tsv, state.db); the same sentence later resumes it: `resolve` reports
+`exists: true` and `has_baseline: true`, so only `loop start` and the loop remain.

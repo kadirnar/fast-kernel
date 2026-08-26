@@ -1,26 +1,65 @@
 ---
 name: fk-experiment
-description: Run exactly ONE fast-kernel experiment (profile -> one hypothesis -> edit candidate/ -> fast-kernel eval -> note) in the current campaign and stop. Designed for `/loop /fk-experiment` and for the Stop-hook loop. Use for "run one experiment", "next iteration", "try one more idea".
+description: Run exactly ONE fast-kernel experiment (state -> one hypothesis -> edit candidate/ -> fast-kernel eval -> note) in the current campaign and stop. The unit of work for /fk-optimize, `/loop /fk-experiment` and the Stop-hook loop. Use for "run one experiment", "next iteration", "try one more idea".
 argument-hint: [campaign-dir] [--target <id>] [--technique <id>]
-allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv run *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Read, Edit, Write, MultiEdit, Glob, Grep
+allowed-tools: Bash(fast-kernel *), Bash(fk *), Bash(uv run *), Bash(python *), Bash(.venv/bin/python *), Bash(git diff *), Bash(git log *), Bash(git status *), Bash(nvidia-smi *), Bash(cat *), Bash(ls *), Read, Edit, Write, MultiEdit, Glob, Grep
 ---
 
-# /fk-experiment — one iteration of the research loop
+# /fk-experiment — one iteration, in full
 
-Campaign: `$ARGUMENTS` if given, else the campaign found from the current directory (`fast-kernel status`).
+Campaign: `$ARGUMENTS` if a directory was given, else `uv run fast-kernel resolve "continue" --json` →
+`campaign`. Run every command as `cd <campaign> && uv run fast-kernel ...`.
 
-1. **Read the state**: `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`,
-   PLAN.md (re-generate with `fast-kernel profile` if it predates the incumbent), KNOWLEDGE.md insights.
-2. **One hypothesis**: the untried target × technique pair with the largest Amdahl gain, unless a focus
-   (`--target/--technique`) was given. Write it as one line: "<what> for <target> via <technique/backend>;
-   expect <x>% end-to-end".
-3. **Implement** under `candidate/` only. Reuse `fast-kernel templates` (Triton norm/silu*mul/matmul/
-   causal-dwconv/codebook-argmin, CUDA C++, TileLang GEMM, CuTe elementwise) and
-   `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
-4. **Evaluate**: `fast-kernel eval -m "<hypothesis>" --technique <ids> --target <id>` (`--simpler` when the
-   change deletes code at equal speed). On a trivial crash (typo/import/shape) fix once and re-run.
-5. **Learn**: `fast-kernel note "<insight with numbers>" --tags <ids>`; if the result contradicts
-   PLAN.md, say what changed.
-6. **Stop** after one recorded experiment with a 3-line summary: `#N [status] metric (Δ%) speedup vs
-   baseline; kernels; next idea`. Never ask whether to continue — the loop (`/loop`, Stop hook, or
-   `fast-kernel auto`) calls this skill again.
+## 1. Read the state (2 minutes, no shortcuts)
+
+```bash
+uv run fast-kernel status --brief          # incumbent, speedup, threshold, loop state
+uv run fast-kernel ideas                    # untried target x technique pairs by Amdahl gain, tried ones marked
+uv run fast-kernel history -n 5             # what just happened and why
+```
+Then read `PLAN.md` (regenerate with `uv run fast-kernel profile` if it predates the incumbent),
+`KNOWLEDGE.md` (insights first), `RECIPES.md` (measured, ordered recipes for this model) and, if the
+last experiment failed, `uv run fast-kernel show <N> --log`.
+
+## 2. Choose one hypothesis
+
+Score = share × (1 − 1/expected), from `ideas`. Tie-breaks: recipe order for this model > untried >
+lower tier > lower risk > smaller diff. A focus given as `--target/--technique` wins unless it is
+clearly exhausted. Write the hypothesis as one line before touching code:
+`"<what> for <target class> via <technique/backend>; expect ~<x>% end-to-end because <share/boundness>"`.
+
+Do not pick: an identical failed edit; a technique whose skill you have not read for this backend;
+anything that changes GOAL.md's policy.
+
+## 3. Implement (candidate/ only)
+
+- Kernel in `candidate/kernels/<name>.py`, integration in `candidate/__init__.py: apply(model, ctx)`
+  (module swap or forward monkeypatch; keep signatures), `report()` evidence (`active`, `invocations`).
+- Start from `uv run fast-kernel templates` (Triton rmsnorm / silu*mul / autotuned GEMM with epilogue /
+  causal depthwise conv1d / codebook argmin; CUDA C++; TileLang GEMM; CuTe elementwise) and
+  `fastkernel.backends.graphs.Graphed` / `ShapeBucketedGraphs`.
+- Numerics per `/numerical-verification`: fp32 accumulation, fixed-order reductions, exact argmin via
+  coarse pass + fp32 re-rank, reference tie-breaks and padding. Strict policy = identical outputs.
+- Self-test before eval: a 20-line script in `/tmp` comparing the kernel with the torch reference on
+  the real shapes from PLAN.md (`torch.testing.assert_close`, plus `torch.equal` for discrete outputs).
+- Warm up every shape in `apply()`; autotune results cached under `candidate/tuned/`; no `.item()`,
+  `.cpu()`, data-dependent Python or allocations in the hot path when graphs are involved.
+
+## 4. Evaluate
+
+```bash
+uv run fast-kernel eval -m "<the one line>" --technique <id[,id]> --target <id>   # add --simpler only when deleting code at equal speed
+```
+Read the verdict: gates (which stage/check failed, value vs threshold), metric vs incumbent vs
+threshold, kernel count, GPU busy, next target. Crash with a trivial cause (typo, import, stride,
+`.contiguous()`, meta tensor) → fix and rerun once. Anything else → accept the revert.
+
+## 5. Learn and stop
+
+```bash
+uv run fast-kernel note "<insight with numbers: what, how much, why, what next>" --tags <technique,target>
+```
+Then stop after exactly one recorded experiment with three lines:
+`#N [status] <metric> (Δ vs incumbent) · <speedup>× vs baseline · kernels <k>`,
+`gates: ...` (or the failing check), `next: <the hypothesis you would run next>`.
+Never ask whether to continue — the loop calls this skill again.

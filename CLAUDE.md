@@ -5,6 +5,9 @@
 - **Plain text is the interface.** When the user asks, in any words, to optimize / accelerate /
   speed up a model (e.g. "Optimize the Mimi codec model.", "make LFM2.5 faster", "optimize the model
   in ./x.py"), invoke the `fk-optimize` skill immediately — do not ask which mode or option they want.
+  The skill's first command, `uv run fast-kernel resolve "<sentence>" --json`, maps the words to the
+  model, to the absolute campaign folder (`campaigns/<model>`, reused if present) and to the remaining
+  steps; every command then runs as `cd <campaign> && uv run fast-kernel ...`.
   "Stop optimizing." means `fast-kernel loop stop` (and `fast-kernel stop` if a headless driver runs).
 - Commands: `uv sync --extra cuda` (GPU runtime), `uv run fast-kernel doctor`, `uv run pytest -q`.
 - Campaigns live under `campaigns/<name>/` (gitignored, each its own git repo).

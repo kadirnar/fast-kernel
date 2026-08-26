@@ -382,6 +382,30 @@ def cmd_doctor(args) -> None:
         print("  campaign         none here (fast-kernel init <model>)")
 
 
+def cmd_resolve(args) -> None:
+    from .resolve import resolve
+    plan = resolve(" ".join(args.text), root=Path(args.root) if args.root else None)
+    if args.json:
+        print(json.dumps(plan, indent=2, default=str))
+        return
+    print(f"action: {plan['action']}")
+    if plan["action"] == "unknown":
+        print(f"  {plan['hint']}")
+        return
+    print(f"model: {plan.get('model')} ({plan.get('display')})\ncampaign: {plan.get('campaign')} ({'exists, ' + str(plan.get('experiments')) + ' experiments' if plan.get('exists') else 'will be created'})")
+    if plan.get("custom_path"):
+        print(f"model file: {plan['custom_path']}")
+    if plan.get("incumbent"):
+        print(f"incumbent: #{plan['incumbent'].get('number')} value={plan['incumbent'].get('value')}")
+    if plan.get("dashboard_url"):
+        print(f"dashboard: {plan['dashboard_url']}")
+    if plan.get("missing_extras"):
+        print(f"missing extras: {', '.join(plan['missing_extras'])}")
+    print("steps:")
+    for i, step in enumerate(plan["steps"], 1):
+        print(f"  {i}. {step}")
+
+
 def cmd_toolchain(args) -> None:
     from .backends.toolchain import install_cuda_toolchain, list_toolchains, remove_toolchain, toolchain_root
     if args.action == "install":
@@ -530,6 +554,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("inbox", help="evaluate worker proposals on top of the incumbent")
     p.set_defaults(fn=cmd_inbox)
+
+    p = sub.add_parser("resolve", help='map a sentence ("Optimize the Mimi codec model.") to model, campaign folder and remaining steps')
+    p.add_argument("text", nargs="+")
+    p.add_argument("--root", help="repository root (default: found by walking up from cwd)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("toolchain", help="self-contained CUDA toolchains from pip wheels (nvcc/cccl/crt/nvvm/runtime)")
     p.add_argument("action", choices=["install", "list", "remove"])
