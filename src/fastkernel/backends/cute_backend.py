@@ -14,11 +14,13 @@ NOTES = (
 def probe(compile_test: bool = True) -> dict[str, Any]:
     result: dict[str, Any] = {"available": False, "compiled": False, "version": None}
     ensure_cuda_home()
+    from ..util import ensure_package
+    ensure_package("cutlass", "nvidia-cutlass-dsl")
     try:
         import cutlass
         import cutlass.cute as cute  # noqa: F401
     except ImportError as exc:
-        result["error"] = f"cutlass DSL not importable: {exc}. Fix: uv pip install nvidia-cutlass-dsl"
+        result["error"] = f"cutlass DSL not importable even after auto-install: {exc}"
         return result
     result["available"] = True
     result["version"] = getattr(cutlass, "__version__", None)

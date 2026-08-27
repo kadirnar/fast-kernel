@@ -82,16 +82,18 @@ def device_capabilities(microbench: bool = True) -> dict[str, Any]:
         xf, yf = x.float(), y.float()
         prev = torch.backends.cuda.matmul.allow_tf32
         torch.backends.cuda.matmul.allow_tf32 = False
-        for _ in range(2):
-            xf @ yf
-        torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        for _ in range(5):
-            xf @ yf
-        torch.cuda.synchronize()
-        dt = (time.perf_counter() - t0) / 5
-        info["measured_fp32_tflops"] = round(2 * m ** 3 / dt / 1e12, 1)
-        torch.backends.cuda.matmul.allow_tf32 = prev
+        try:
+            for _ in range(2):
+                xf @ yf
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            for _ in range(5):
+                xf @ yf
+            torch.cuda.synchronize()
+            dt = (time.perf_counter() - t0) / 5
+            info["measured_fp32_tflops"] = round(2 * m ** 3 / dt / 1e12, 1)
+        finally:
+            torch.backends.cuda.matmul.allow_tf32 = prev
         del x, y, xf, yf
         # launch latency: many tiny kernels
         z = torch.zeros(32, device="cuda")

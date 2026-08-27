@@ -80,4 +80,6 @@ def test_render_plan():
                "gpu_busy_ratio": 0.95, "kernel_count": 10, "avg_kernel_us": 190.0, "launch_bound": False}, "device": DEVICE,
                "targets": targets, "top_kernels": [{"name": "k", "count": 1, "gpu_us": 1.0, "category": "gemm"}], "top_ops": []}
     md = render_plan_md(payload, "notes here", {"triton": {"compiled": True, "version": "3.7"}})
-    assert "GPU-bound" in md and "Linear" in md and "notes here" in md and "triton" in md
+    assert "GPU-BOUND" in md and "Linear" in md and "notes here" in md and "triton" in md
+    # agent-facing PLAN.md must not prescribe a technique or predict a speedup
+    assert "techniques to try" not in md and "expected speedup" not in md

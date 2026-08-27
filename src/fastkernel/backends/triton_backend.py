@@ -11,11 +11,13 @@ NOTES = (
 
 def probe(compile_test: bool = True) -> dict[str, Any]:
     result: dict[str, Any] = {"available": False, "compiled": False, "version": None}
+    from ..util import ensure_package
+    ensure_package("triton")
     try:
         import triton
         import triton.language as tl
     except ImportError as exc:
-        result["error"] = f"triton not importable: {exc}. Fix: uv pip install triton"
+        result["error"] = f"triton not importable even after auto-install: {exc}"
         return result
     result["available"] = True
     result["version"] = getattr(triton, "__version__", None)

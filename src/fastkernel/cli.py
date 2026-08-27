@@ -153,11 +153,10 @@ def _refresh_statuses(campaign: Campaign, targets: list[dict[str, Any]]) -> list
 
 
 def _print_targets(targets: list[dict[str, Any]]) -> None:
-    print(f"{'#':>2} {'target':44s} {'share':>6} {'gain':>6} {'bound':8s} tried  next technique")
+    print(f"{'#':>2} {'target':44s} {'share':>6} {'bound':8s} {'kernels':>7} tried/acc")
     for t in targets:
-        nxt = next((x for x in t.get("techniques", []) if x["status"] == "untried"), None)
-        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {t['amdahl_gain'] * 100:5.1f}% {t['boundness']:8s} "
-              f"{t.get('attempts', 0):>5}  {(nxt or {}).get('id', '-')}  [{t['id']}]")
+        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {t['boundness']:8s} "
+              f"{t.get('kernel_count', 0):>7}  {t.get('attempts', 0)}/{t.get('accepted', 0)}  [{t['id']}]")
 
 
 def cmd_baseline(args) -> None:
@@ -254,20 +253,17 @@ def cmd_ideas(args) -> None:
         sys.exit("no hotspots yet: run `fast-kernel profile` (or `fast-kernel baseline`) first")
     if args.target:
         targets = [t for t in targets if t["id"] == args.target or t["class"] == args.target]
-    print(f"untried ideas ranked by Amdahl gain (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}):")
+    print(f"hotspots by measured share of GPU time (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}).")
+    print("Pick the target with the most headroom; discover the technique/backend yourself from the profile, KNOWLEDGE.md and the skills.")
     shown = 0
     for t in targets:
-        untried = [x for x in t.get("techniques", []) if x["status"] == "untried"]
-        if not untried:
-            continue
-        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%  gain {t['amdahl_gain'] * 100:.1f}%")
+        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%  {t['boundness']}-bound  "
+              f"{t.get('kernel_count', 0)} kernels  ({t.get('attempts', 0)} tried / {t.get('accepted', 0)} accepted)")
         if t.get("hint"):
             print(f"     hint: {t['hint'][:200]}")
-        for x in untried[: args.per_target]:
-            print(f"     - {x['id']:22s} tier {x['tier']} ~{x['expected_speedup']:.1f}x risk {x['risk']:6s} via {', '.join(x['backends'])} -> /{x['skill']}")
-        tried = [x for x in t.get("techniques", []) if x["status"] != "untried"]
-        if tried:
-            print("     tried: " + ", ".join(f"{x['id']}={x['status']}" for x in tried))
+        if t.get("instances"):
+            inst = t["instances"][0]
+            print(f"     example: {inst['path']} {inst['gpu_us']:.1f} us / {inst['kernel_count']} kernels")
         shown += 1
         if shown >= args.limit:
             break

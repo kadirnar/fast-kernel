@@ -41,21 +41,25 @@ def render_plan_md(payload: dict[str, Any], spec_notes: str = "", backends: dict
         f"- wall time per call: **{fmt(s.get('wall_ms'))} ms**; GPU busy: **{fmt(s.get('gpu_busy_ms'))} ms** "
         f"({fmt((s.get('gpu_busy_ratio') or 0) * 100, 3)}% of wall); summed kernel time: {fmt(s.get('gpu_time_ms'))} ms",
         f"- kernel launches per call: **{s.get('kernel_count')}** (avg {fmt(s.get('avg_kernel_us'), 3)} us each)",
-        f"- verdict: **{'LAUNCH/OVERHEAD BOUND -- the GPU is idle most of the time; reduce launches first' if s.get('launch_bound') else 'GPU-bound -- optimize the top kernels'}**",
+        f"- measured state: **{'LAUNCH/OVERHEAD BOUND -- the GPU is idle most of the wall time' if s.get('launch_bound') else 'GPU-BOUND -- most of the wall time is inside kernels'}**",
         f"- device: {d.get('name')} (sm_{str(d.get('compute_capability', '')).replace('.', '')}, {d.get('sm_count')} SMs, "
         f"{fmt(d.get('total_memory_gb'), 3)} GB), measured {fmt(d.get('measured_bandwidth_gbs'), 4)} GB/s, "
         f"{fmt(d.get('measured_bf16_tflops'), 4)} bf16 TFLOPS, launch latency ~{fmt(d.get('launch_latency_us'), 3)} us",
         "",
-        "## Ranked targets (Amdahl gain = fraction x (1 - 1/expected speedup))",
+        "## Ranked targets (by measured share of GPU time)",
         "",
-        "| # | target | category | bound | share | GPU us | kernels | inst. | expected | gain | tried/accepted |",
-        "|--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|",
+        "_Measured facts only. Which technique or backend to try is yours to discover from the profile,"
+        " the top kernels, KNOWLEDGE.md and the backend skills -- nothing here prescribes a method or"
+        " predicts how much it will help._",
+        "",
+        "| # | target | category | bound | share | GPU us | kernels | inst. | tried/accepted |",
+        "|--:|---|---|---|--:|--:|--:|--:|--:|",
     ]
     for t in payload["targets"]:
         lines.append(
             f"| {t['rank']} | `{t['class']}` | {t['category']} | {t['boundness']} | {t['fraction'] * 100:.1f}% | "
-            f"{fmt(t['gpu_us'], 5)} | {t['kernel_count']} | {t.get('instance_count', 1)} | {t['expected_speedup']:.1f}x | "
-            f"{t['amdahl_gain'] * 100:.1f}% | {t.get('attempts', 0)}/{t.get('accepted', 0)} |")
+            f"{fmt(t['gpu_us'], 5)} | {t['kernel_count']} | {t.get('instance_count', 1)} | "
+            f"{t.get('attempts', 0)}/{t.get('accepted', 0)} |")
     lines.append("")
     for t in payload["targets"][:10]:
         lines.append(f"### {t['rank']}. {t['title']}  `{t['id']}`")
@@ -69,10 +73,9 @@ def render_plan_md(payload: dict[str, Any], spec_notes: str = "", backends: dict
                          f"params={shapes.get('params')} attrs={shapes.get('attrs')}")
         if t.get("flops"):
             lines.append(f"- est. {t['flops'] / 1e9:.3f} GFLOP, {t['bytes'] / 1e6:.2f} MB per call")
-        lines.append("- techniques to try, in order (status from results so far):")
-        for tech in t.get("techniques", [])[:7]:
-            lines.append(f"  - [{tech['status']}] **{tech['id']}** (tier {tech['tier']}, ~{tech['expected_speedup']:.1f}x, risk {tech['risk']}, "
-                         f"backends: {', '.join(tech['backends'])}, skill: `{tech['skill']}`) -- {tech['title']}")
+        if t.get("attempts"):
+            lines.append(f"- experiments on this target so far: {t.get('attempts', 0)} tried, {t.get('accepted', 0)} accepted "
+                         f"(see KNOWLEDGE.md for what was learned)")
         lines.append("")
     if payload.get("top_kernels"):
         lines.append("## Top kernels")

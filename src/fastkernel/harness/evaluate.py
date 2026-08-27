@@ -260,7 +260,7 @@ def render_verdict(campaign: Campaign, record: dict[str, Any], gates: dict[str, 
                      f"wall {fmt(record.get('wall_ms'))} ms, duration {record.get('duration_s')} s")
     if record.get("top_targets"):
         top = record["top_targets"][0]
-        lines.append(f"   next best target: {top.get('title')} ({top.get('id')}) share {fmt((top.get('fraction') or 0) * 100, 3)}% gain {fmt((top.get('amdahl_gain') or 0) * 100, 3)}%")
+        lines.append(f"   biggest remaining hotspot: {top.get('title')} ({top.get('id')}) share {fmt((top.get('fraction') or 0) * 100, 3)}% of GPU time")
     if record["status"] in ("crash", "error"):
         lines.append("   --- log tail ---")
         lines.extend("   " + line for line in tail_text(log, 25).splitlines())

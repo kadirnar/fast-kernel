@@ -122,7 +122,9 @@ def load_cuda_inline(name: str, cuda_src: str, cpp_src: str, functions: list[str
     build.mkdir(parents=True, exist_ok=True)
     return load_inline(
         name=name, cpp_sources=[cpp_src], cuda_sources=[cuda_src], functions=functions,
-        extra_cuda_cflags=["-O3", "--use_fast_math", *(extra_cuda_cflags or [])],
+        # No forced --use_fast_math: the strict quality contract needs exact rsqrt/div/fmad and no
+        # denormal flush. A kernel that genuinely wants fast-math opts in via extra_cuda_cflags.
+        extra_cuda_cflags=["-O3", *(extra_cuda_cflags or [])],
         build_directory=str(build), verbose=verbose,
     )
 

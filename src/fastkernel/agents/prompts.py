@@ -15,14 +15,19 @@ def iteration_prompt(campaign_root: Path, *, target: str | None = None, techniqu
 Follow AGENTS.md (the research program) strictly:
 1. `cd {campaign_root}` then read `fast-kernel status --brief`, `fast-kernel ideas`, PLAN.md, KNOWLEDGE.md and the last
    3 experiments (`fast-kernel history -n 3`). Never repeat an identical failed edit.
-2. Choose ONE hypothesis with the largest expected end-to-end (Amdahl) gain among untried target x technique pairs.
+2. Pick ONE target -- the one with the most measured headroom (biggest share of GPU time / most launches).
+   The technique and backend are yours to discover from the profile, the top kernels, KNOWLEDGE.md and the
+   backend skills; nothing tells you which method to use or how much it will speed up. Never repeat an
+   identical failed edit.
 3. Implement it ONLY under `candidate/` (candidate/__init__.py `apply(model, ctx)` and candidate/kernels/*). Never edit
-   GOAL.md, spec.py, experiments/, results.tsv or anything under the fastkernel package.
+   GOAL.md, spec.py, experiments/, results.tsv or anything under the fastkernel package. If a kernel needs a library that
+   is not installed, install it (`uv pip install ...`) and continue -- never stop to ask a human for it.
 4. Run `fast-kernel eval -m "<one-line hypothesis>" --technique <ids> --target <id>` (add `--simpler` only when the change
    deletes code at equal speed). If it crashes on a trivial error (typo, import, shape), fix and re-run once; otherwise accept
    the revert and move on.
 5. Read the verdict, then record one insight: `fast-kernel note "<what you learned, with numbers>" --tags <ids>`.
-Do not ask questions, do not pause for confirmation, do not stop early to summarise; the harness decides keep/revert.{focus}
+Do not ask questions, do not pause for confirmation, do not stop early to summarise, and never ask the human whether to
+continue or to stop; the harness decides keep/revert and the loop runs until the optimization is exhausted.{focus}
 """
 
 

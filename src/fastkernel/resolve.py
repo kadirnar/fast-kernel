@@ -28,7 +28,8 @@ MODEL_RULES: list[tuple[str, str, str]] = [
     ("yolo", r"\byolo|\bdetect(ion|or)?\b|ultralytics", "YOLO (Ultralytics YOLO26n)"),
 ]
 EXTRAS = {"lfm-audio": [("liquid_audio", "audio")], "yolo": [("ultralytics", "yolo")]}
-STOP_RE = re.compile(r"\b(stop|halt|end|finish|pause|cancel)\b")
+# "end" is intentionally excluded: it collides with ordinary phrasing ("end-to-end", "in the end").
+STOP_RE = re.compile(r"\b(stop|halt|finish|pause|cancel)\b")
 STATUS_RE = re.compile(r"\b(status|progress|how (is|are|far)|where are we|report|summar)")
 PATH_RE = re.compile(r"(?:^|\s)((?:\.{1,2}/|/|~/)?[\w\-./]+\.py|(?:\.{1,2}/|/|~/)[\w\-./]+)")
 
