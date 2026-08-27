@@ -9,7 +9,7 @@ Optimize the PyTorch model in ./spec.py.
 Optimize my PyTorch model with fast-kernel: after `fast-kernel init custom --name <name>` edit
 `campaigns/<name>/spec.py` so `build_model()` loads my model from the path I gave (see `/fk-add-model`
 for workloads and checks), then make its forward pass as fast as possible on this machine and keep
-improving for as long as I let you run. Speed is only accepted without any loss of quality: outputs must
+improving until the optimization is exhausted. Speed is only accepted without any loss of quality: outputs must
 stay equal to the original model within the spec's tolerance.
 
 ## What to read before doing anything (in this order)
@@ -28,8 +28,8 @@ stay equal to the original model within the spec's tolerance.
    correctness checks and the hotspot hints. Read the model's own source too (my model's source file).
 5. The campaign, once it exists: `campaigns/<name>/GOAL.md` (objective, metric, quality policy),
    `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
-   shapes), `KNOWLEDGE.md`
-   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   shapes), `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and
+   `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)

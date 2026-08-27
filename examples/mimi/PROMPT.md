@@ -8,7 +8,7 @@ Optimize the Mimi codec model.
 
 Optimize the Mimi neural audio codec (`kyutai/mimi`, loaded through `transformers.MimiModel`) with
 fast-kernel: make encode + decode of one second of 24 kHz audio (batch 1, the primary workload
-`roundtrip_1s`) as fast as possible on this machine, and keep improving it for as long as I let you run.
+`roundtrip_1s`) as fast as possible on this machine, and keep improving it until the optimization is exhausted.
 Speed is only accepted without any loss of quality: the optimized model must produce exactly the same
 audio codes and the same waveform as the original.
 
@@ -28,8 +28,8 @@ audio codes and the same waveform as the original.
    correctness checks and the hotspot hints. Read the model's own source too (`transformers/models/mimi/modeling_mimi.py` in site-packages).
 5. The campaign, once it exists: `campaigns/mimi/GOAL.md` (objective, metric, quality policy),
    `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
-   shapes), `KNOWLEDGE.md`
-   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   shapes), `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and
+   `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)

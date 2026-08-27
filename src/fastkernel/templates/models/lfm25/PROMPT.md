@@ -9,7 +9,7 @@ Optimize the LFM2.5 model.
 Optimize LiquidAI's LFM2.5-1.2B-Instruct (`transformers.AutoModelForCausalLM`, `Lfm2ForCausalLM`, bf16)
 with fast-kernel: make greedy decoding of 64 tokens after a 64-token prompt (batch 1, the primary
 workload `decode`) as fast as possible on this machine, keep prefill of 512 tokens fast too, and keep
-improving for as long as I let you run. Speed is only accepted without any loss of quality: the
+improving until the optimization is exhausted. Speed is only accepted without any loss of quality: the
 optimized model must generate exactly the same tokens as the original.
 
 ## What to read before doing anything (in this order)
@@ -28,8 +28,8 @@ optimized model must generate exactly the same tokens as the original.
    correctness checks and the hotspot hints. Read the model's own source too (`transformers/models/lfm2/modeling_lfm2.py` in site-packages).
 5. The campaign, once it exists: `campaigns/lfm25/GOAL.md` (objective, metric, quality policy),
    `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
-   shapes), `KNOWLEDGE.md`
-   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   shapes), `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and
+   `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)

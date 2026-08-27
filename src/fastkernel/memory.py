@@ -42,6 +42,20 @@ _FAILURE_RULES: list[tuple[re.Pattern[str], str, str]] = [
 ]
 
 
+# class -> one-line diagnosis, for a failure class that was stored earlier (no re-classification).
+FAILURE_DETAIL: dict[str, str] = {cls: detail for _rule, cls, detail in _FAILURE_RULES}
+FAILURE_DETAIL.update({
+    "numerical": "the numerical gate failed against the frozen reference",
+    "determinism": "two identical runs disagreed — remove non-deterministic reductions/atomics",
+    "edge": "an edge workload failed — short, odd-length or batched inputs",
+    "other": "unclassified failure — read the run log",
+})
+
+
+def failure_detail(failure_class: str | None) -> str:
+    return FAILURE_DETAIL.get(failure_class or "", FAILURE_DETAIL["other"])
+
+
 def target_signature(target: dict[str, Any] | None) -> str:
     """A coarse, stable key for 'the same kind of target': category:boundness:class."""
     t = target or {}

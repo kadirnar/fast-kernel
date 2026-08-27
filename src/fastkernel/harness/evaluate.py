@@ -276,9 +276,8 @@ def render_verdict(campaign: Campaign, record: dict[str, Any], gates: dict[str, 
         lines.append(f"   biggest remaining hotspot: {top.get('title')} ({top.get('id')}) share {fmt((top.get('fraction') or 0) * 100, 3)}% of GPU time{sol_str}")
     refl = record.get("reflexion") or {}
     if record.get("failure_class"):
-        from .. import memory as _memory
-        diag = _memory.classify_failure(log, record.get("gates"))
-        lines.append(f"   failure class: {record['failure_class']} -- {diag.get('detail', '')}")
+        from ..memory import failure_detail
+        lines.append(f"   failure class: {record['failure_class']} -- {failure_detail(record['failure_class'])}")
     if refl.get("outcome"):
         lines.append(f"   reflexion: {refl['outcome']}")
     if record["status"] in ("crash", "error"):

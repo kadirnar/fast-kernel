@@ -28,8 +28,8 @@ same boxes, confidences and classes as the original.
    correctness checks and the hotspot hints. Read the model's own source too (the `ultralytics` package (`nn/tasks.py`, `nn/modules/`)).
 5. The campaign, once it exists: `campaigns/yolo/GOAL.md` (objective, metric, quality policy),
    `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
-   shapes), `KNOWLEDGE.md`
-   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   shapes), `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and
+   `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)

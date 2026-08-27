@@ -244,6 +244,12 @@ def cmd_show(args) -> None:
     print(f"  gates: {gates.get('summary')}")
     for chk in gates.get("failed_checks") or []:
         print(f"    x {chk['name']}: {chk['detail'][:160]}")
+    if detail.get("failure_class"):
+        from .memory import failure_detail
+        print(f"  failure class: {detail['failure_class']} -- {failure_detail(detail['failure_class'])}")
+    refl = detail.get("reflexion") or {}
+    if refl.get("outcome"):
+        print(f"  reflexion: {refl['outcome']}")
     if args.patch and detail.get("patch"):
         print(detail["patch"])
     if args.log:
@@ -536,7 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("eval", help="evaluate the current candidate/ tree: gates -> bench -> profile -> keep/revert")
     p.add_argument("-m", "--message", required=True, help="one-line hypothesis")
-    p.add_argument("--technique", action="append", help="playbook technique id(s), comma separated")
+    p.add_argument("--technique", action="append", help="technique id(s) you choose for the matrix, comma separated")
     p.add_argument("--target", help="hotspot target id from PLAN.md")
     p.add_argument("--notes")
     p.add_argument("--simpler", action="store_true", help="keep if not slower beyond threshold and the code is simpler")

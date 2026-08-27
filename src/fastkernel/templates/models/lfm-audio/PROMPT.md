@@ -9,7 +9,7 @@ Optimize the LFM2 audio model.
 Optimize LiquidAI's LFM2.5-Audio-1.5B (the `liquid_audio` LFM2AudioModel built on the Transformers Lfm2
 backbone, a FastConformer audio encoder and a Mimi-compatible 8-codebook decoder) with fast-kernel:
 make text-to-speech generation of one sentence (the primary workload `tts`) and ASR of 2 s of audio as
-fast as possible on this machine, and keep improving for as long as I let you run. Speed is only accepted
+fast as possible on this machine, and keep improving until the optimization is exhausted. Speed is only accepted
 without any loss of quality: the optimized model must produce exactly the same tokens and audio codes as
 the original.
 
@@ -29,8 +29,8 @@ the original.
    correctness checks and the hotspot hints. Read the model's own source too (the `liquid_audio` package and `transformers/models/lfm2/modeling_lfm2.py` in site-packages).
 5. The campaign, once it exists: `campaigns/lfm-audio/GOAL.md` (objective, metric, quality policy),
    `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
-   shapes), `KNOWLEDGE.md`
-   (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
+   shapes), `KNOWLEDGE.md` (insights and the experiment log), `results.tsv`, and
+   `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
 ## How the library works (do it in this order; every step is idempotent)
