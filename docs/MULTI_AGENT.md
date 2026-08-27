@@ -14,7 +14,10 @@
 
 The harness is the referee for all of them: acceptance is computed, not argued.
 
-## Three ways to keep going forever
+## Three ways to keep going
+
+All three run until the optimization is *exhausted* — 15 consecutive experiments that ran but improved
+nothing — and then stop themselves. A human may stop earlier, but is never asked to.
 
 1. **Interactive, Stop-hook loop** — `/fk-optimize <model>` sets `.fast-kernel/loop.active`; the
    project's Stop hook (`.claude/hooks/loop_guard.py`) blocks the end of every turn with "run the next
@@ -39,7 +42,7 @@ writes the diff plus metadata to the main campaign's `.fast-kernel/inbox/`. The 
 `fast-kernel inbox`: every proposal is applied on the *current* incumbent, measured by the full harness
 and kept or reverted, one after another. Patches that no longer apply are rejected with an event.
 
-## Headless parallel workers (`fast-kernel auto --agents N`)
+## Headless parallel workers (`fast-kernel auto --agents N [--islands K]`)
 
 Each worker (`fast-kernel worker --name wN`) gets its own git worktree of the campaign
 (`.fast-kernel/worktrees/wN`, branch `worker/wN` from the incumbent), copies of PLAN.md /
@@ -49,6 +52,11 @@ the `candidate/` diff is written to `.fast-kernel/inbox/<worker>-<ts>.diff` with
 loop (or `fast-kernel inbox`) applies proposals one at a time on top of the *current* incumbent and
 re-evaluates them with the full harness — so the lineage stays a single chain of measured
 improvements even when many agents explore concurrently. Conflicting patches are rejected with an event.
+
+With `--islands K` the workers are split into K populations and each island leases from a different band
+of the ranked targets, so the search does not collapse onto one hotspot; elites still spread because
+every proposal is re-measured on the global incumbent. `fast-kernel beam` shows the top-k accepted
+candidates — the search population, not just the single incumbent.
 
 ## Claude Agent SDK
 

@@ -67,4 +67,6 @@ box tolerances, allclose), determinism (candidate vs itself), edge (short/odd/ba
 (`harness/bench.py`): warm-up, 1 s clock ramp, N CUDA-synchronised repeats, median/min/p90/std, peak
 VRAM, derived rtf / tokens/s / fps. Decision (`harness/evaluate.py`): crash -> revert; gates FAIL ->
 revert; improvement >= max(`min_improvement`, baseline noise floor) -> keep; otherwise revert unless
-`--simpler`. Every path records results.tsv, KNOWLEDGE.md, SQLite events, `experiments/NNNN-*/`.
+`--simpler`. Every path records results.tsv, KNOWLEDGE.md, SQLite events, `experiments/NNNN-*/` and one
+structured reflexion in `.fast-kernel/memory.jsonl` (measured delta, verdict, failure class) that
+`fast-kernel memory --target <id>` retrieves for the next iteration.

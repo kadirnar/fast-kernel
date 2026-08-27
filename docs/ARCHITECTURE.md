@@ -44,7 +44,10 @@ untouched so the environment can be repaired.
 
 Loop (Claude Code): `loop.active` flag -> Stop hook blocks the end of turn with "run the next
 experiment" while new experiments keep appearing; `paused` -> flag honoured by drivers; `stop` ->
-everything winds down after the current experiment.
+everything winds down after the current experiment. The loop also ends itself on measured convergence
+(15 consecutive experiments that ran but improved nothing): the driver breaks and the hook clears
+`loop.active`. Every finished experiment appends one reflexion to `.fast-kernel/memory.jsonl`
+(target, techniques, measured delta, verdict, failure class), queried with `fast-kernel memory`.
 
 ## Data flow of one experiment
 

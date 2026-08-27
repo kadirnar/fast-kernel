@@ -8,8 +8,10 @@ allowed-tools: Bash(fast-kernel templates), Bash(fast-kernel probe), Read, Edit,
 # CUDA C++ kernels
 
 Template: `fastkernel/backends/templates/cuda_cpp_template.py` — `load_cuda_inline(name, cuda_src, cpp_src,
-functions, campaign_root)` compiles into `.fast-kernel/build/<name>` with `-O3 --use_fast_math` for the
-measured `TORCH_CUDA_ARCH_LIST` (set by `ensure_cuda_home()`).
+functions, campaign_root)` compiles into `.fast-kernel/build/<name>` with `-O3` for the measured
+`TORCH_CUDA_ARCH_LIST` (set by `ensure_cuda_home()`). Fast-math is deliberately NOT forced — under the
+strict policy a kernel needs exact `rsqrt`/`div`/`fmad` and no denormal flush. Pass
+`extra_cuda_cflags=["--use_fast_math"]` yourself only when the numerics genuinely tolerate it.
 
 ## Recipe
 1. Prototype: `TORCH_CHECK` dtypes/contiguity, launch on `at::cuda::getCurrentCUDAStream()`, one kernel

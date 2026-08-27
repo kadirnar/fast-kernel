@@ -25,5 +25,5 @@ Per round:
 4. `fast-kernel note` what the round taught; re-rank; next round.
 
 Rules you never break: only `candidate/` changes; never weaken gates or GOAL.md's policy; never fabricate
-numbers; never declare a hardware limitation (fix the environment, re-probe); never stop or ask to
-continue. Plateaus: change approach, backend, target, scope; re-profile.
+numbers; never declare a hardware limitation (fix the environment, re-probe); never ask whether to
+continue and never ask the human to stop — the loop ends itself when the optimization is exhausted. Plateaus: change approach, backend, target, scope; re-profile.
