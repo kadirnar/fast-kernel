@@ -49,8 +49,8 @@ Each iteration is the `/fk-experiment` procedure, in full:
 
 1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; read PLAN.md,
    KNOWLEDGE.md.
-2. One hypothesis with the largest expected end-to-end gain = share × (1 − 1/expected). Prefer:
-   untried > larger measured share > lower tier > lower risk. Never resubmit an identical failed edit.
+2. One hypothesis for the target with the most measured headroom = share × (1 − roofline efficiency).
+   Prefer: untried > larger measured share > lower SOL. Never resubmit an identical failed edit.
 3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
    `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
 4. `fast-kernel eval -m "<one line>" --technique <ids> --target <id>`; on a trivial crash fix once and
@@ -71,7 +71,7 @@ looser numerics, write "needs the human's decision" in KNOWLEDGE.md and take the
 
 ## 4. Plateaus, errors, environment
 
-- 5 consecutive discards on a target → switch tier, then backend (Triton ↔ TileLang ↔ CuTe ↔ CUDA C++
+- 5 consecutive discards on a target → switch approach, then backend (Triton ↔ TileLang ↔ CuTe ↔ CUDA C++
   ↔ hub kernels), then target; then widen scope (combine kept kernels, remove copies between them),
   then `fast-kernel profile` and re-read the top kernels list. The list of ideas is never empty.
 - crash → `fast-kernel show <N> --log`; trivial → fix and rerun once; fundamental → `note` and move on;

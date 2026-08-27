@@ -1,8 +1,8 @@
 # The optimization pipeline
 
 ```
-capabilities  ->  trace  ->  attribute  ->  classify  ->  rank (Amdahl)  ->  recommend  ->  PLAN.md
-   (probe)      profiler   modules+frames   roofline     share x (1-1/x)     playbook      + hotspots.json
+capabilities  ->  trace  ->  attribute  ->  classify  ->  rank (headroom)  ->  PLAN.md
+   (probe)      profiler   modules+frames   roofline     share x (1 - SOL)    + hotspots.json
 ```
 
 ## 1. Capabilities (`fast-kernel probe`)
@@ -38,16 +38,20 @@ launch latency, else `compute` above the ridge, else `memory`. Categories come f
 (gemm, conv, attention, norm, elementwise, reduction, indexing, memory-movement, quantizer, sequential,
 other) with spec hints overriding by class name.
 
-## 4. Rank (Amdahl)
+## 4. Rank (measured headroom)
 
 Instances are grouped by (class, category) because one kernel fixes all layers of a kind. For each
-group: `share = group GPU time / total GPU time`, `expected` = the best playbook prior for its category
-and boundness, `gain = share x (1 - 1/expected)`. A launch-bound workload adds a whole-workload target
+group: `share = group GPU time / total GPU time`, `sol_efficiency` = achieved bandwidth or FLOP/s over
+this machine's measured Speed-of-Light peak, `headroom = share x (1 - sol_efficiency)`. A launch-bound workload adds a whole-workload target
 with `share = GPU idle fraction of wall time`. The technique matrix from `results` (accepted / rejected /
 crash per target x technique) orders techniques (untried first) and mildly demotes targets whose
 ideas all failed. The ranking is recomputed after every kept experiment — shares move.
 
-## 5. Recommend
+## 5. Technique catalogue (internal only)
+
+PLAN.md and `fast-kernel ideas` deliberately show measured facts only — never a technique to use or a
+predicted speedup; the agent discovers the method itself. The catalogue below is used internally (for
+the experiment matrix and the dashboard) and is not rendered to the agent.
 
 `playbook.py` holds the catalogue: tier 0 structure (CUDA graphs, torch.compile, kernel-count
 reduction, weight pre-packing, dtype policy), tiers 1-2 block/memory tuning, tier 3 fusion (epilogues,

@@ -478,10 +478,9 @@
       const td = el("td"); td.appendChild(el("b", null, t.class)); td.appendChild(el("div", "muted", `${t.category} · ${t.instance_count || 1} inst · ${t.attempts || 0} tried`)); tr.appendChild(td);
       tr.appendChild(el("td", null, t.boundness));
       tr.appendChild(el("td", "num", pct(t.fraction, 1)));
-      tr.appendChild(el("td", "num", pct(t.amdahl_gain, 1)));
-      const next = (t.techniques || []).find((x) => x.status === "untried");
-      tr.appendChild(el("td", "mono", next ? next.id : "–"));
-      tr.onpointermove = (ev) => showTip(ev.clientX, ev.clientY, [{ value: t.title }, t.hint || "", `id ${t.id} · expected ${t.expected_speedup}× · ${t.kernel_count} kernels`]);
+      tr.appendChild(el("td", "num", t.sol_efficiency != null ? pct(t.sol_efficiency, 0) : "–"));
+      tr.appendChild(el("td", "num", t.headroom != null ? pct(t.headroom, 1) : "–"));
+      tr.onpointermove = (ev) => showTip(ev.clientX, ev.clientY, [{ value: t.title }, t.hint || "", `id ${t.id} · ${t.kernel_count} kernels`]);
       tr.onpointerleave = hideTip;
       tbody.appendChild(tr);
     });
@@ -697,8 +696,8 @@
       section("profile").appendChild(kv([["kernels", p.kernel_count], ["wall ms", p.wall_ms != null ? fmt(p.wall_ms) : null], ["GPU busy ms", p.gpu_busy_ms != null ? fmt(p.gpu_busy_ms) : null], ["busy ratio", p.gpu_busy_ratio != null ? pct(p.gpu_busy_ratio, 0) : null]]));
       if (p.targets && p.targets.length) {
         const s = section("targets"); const t = el("table"); const tb = el("tbody");
-        const trh = el("tr"); ["#", "target", "bound", "share", "gain", "kernels", "next"].forEach((h, i) => trh.appendChild(el("th", i >= 3 && i <= 5 ? "num" : "", h))); const th = el("thead"); th.appendChild(trh); t.appendChild(th);
-        p.targets.forEach((x) => { const tr = el("tr"); tr.appendChild(el("td", null, String(x.rank))); tr.appendChild(el("td", null, x.title)); tr.appendChild(el("td", null, x.boundness)); tr.appendChild(el("td", "num", pct(x.fraction))); tr.appendChild(el("td", "num", pct(x.amdahl_gain))); tr.appendChild(el("td", "num", String(x.kernel_count))); const nx = (x.techniques || []).find((y) => y.status === "untried"); tr.appendChild(el("td", "mono", nx ? nx.id : "–")); tb.appendChild(tr); });
+        const trh = el("tr"); ["#", "target", "bound", "share", "SOL", "headroom", "kernels"].forEach((h, i) => trh.appendChild(el("th", i >= 3 && i <= 5 ? "num" : "", h))); const th = el("thead"); th.appendChild(trh); t.appendChild(th);
+        p.targets.forEach((x) => { const tr = el("tr"); tr.appendChild(el("td", null, String(x.rank))); tr.appendChild(el("td", null, x.title)); tr.appendChild(el("td", null, x.boundness)); tr.appendChild(el("td", "num", pct(x.fraction))); tr.appendChild(el("td", "num", x.sol_efficiency != null ? pct(x.sol_efficiency, 0) : "–")); tr.appendChild(el("td", "num", x.headroom != null ? pct(x.headroom) : "–")); tr.appendChild(el("td", "num", String(x.kernel_count))); tb.appendChild(tr); });
         t.appendChild(tb); s.appendChild(t);
       }
       if (p.kernels && p.kernels.length) {

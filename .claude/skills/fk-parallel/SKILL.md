@@ -11,7 +11,7 @@ The GPU and the incumbent are shared, so the protocol is: **explore in parallel,
 
 ## In-session (Agent tool)
 
-1. `uv run fast-kernel ideas` → pick N distinct targets (top Amdahl gain, one technique each).
+1. `uv run fast-kernel ideas` → pick N distinct targets (most measured headroom, one approach each).
 2. For each target: `uv run fast-kernel worktree create eng-<target>` (prints an absolute path; a private
    git worktree branched from the incumbent with PLAN.md/KNOWLEDGE.md/incumbent copied in).
 3. Spawn N `fk-kernel-engineer` subagents in parallel. Each prompt contains: the worktree path, the

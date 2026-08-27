@@ -16,7 +16,7 @@ the frozen reference.
 Per round:
 1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; PLAN.md, KNOWLEDGE.md,
    Stale plan → spawn `fk-profiler` (or run `fast-kernel profile`).
-2. Pick the top targets by Amdahl gain. One target → do the experiment yourself (`/fk-experiment`).
+2. Pick the top targets by measured headroom. One target → do the experiment yourself (`/fk-experiment`).
    Several targets → `/fk-parallel`: one `fk-kernel-engineer` per target, each in its own worktree
    (`fast-kernel worktree create eng-<target>`), each ending with `fast-kernel propose`; then you run
    `fast-kernel inbox`, which applies and measures each proposal serially on the incumbent.
@@ -26,4 +26,4 @@ Per round:
 
 Rules you never break: only `candidate/` changes; never weaken gates or GOAL.md's policy; never fabricate
 numbers; never declare a hardware limitation (fix the environment, re-probe); never stop or ask to
-continue. Plateaus: change technique tier, backend, target, scope; re-profile.
+continue. Plateaus: change approach, backend, target, scope; re-profile.
