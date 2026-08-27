@@ -82,7 +82,7 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
                 "instances": [], "instance_count": 1, "expected_speedup": exp,
                 "amdahl_gain": idle_fraction * (1 - 1 / exp), "scope": "workload",
                 "hint": f"GPU busy only {100 * (1 - idle_fraction):.0f}% of wall time across {profile.get('kernel_count', 0)} launches "
-                        f"(avg kernel {profile.get('avg_kernel_us') or 0:.1f} us). CUDA graphs / fusion / torch.compile apply.",
+                        f"(avg kernel {profile.get('avg_kernel_us') or 0:.1f} us).",
             })
     matrix = technique_matrix(history)
     for target in targets:

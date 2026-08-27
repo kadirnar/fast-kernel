@@ -17,6 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import experiment_count, find_campaigns, last_experiment, project_dir, read_input  # noqa: E402
 
 MAX_NO_PROGRESS = 3
+# Consecutive experiments that ran but were not accepted, after which the optimization is treated as
+# exhausted: the loop stops itself (the flag is cleared) instead of ever asking the human to stop.
+CONVERGE_AFTER = 15
 
 
 def main() -> int:
@@ -36,25 +39,42 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         guard = {"count": 0, "no_progress": 0}
     count = experiment_count(campaign)
-    if count > int(guard.get("count", 0)):
-        guard = {"count": count, "no_progress": 0}
+    last = last_experiment(campaign) or {}
+    prev_count = int(guard.get("count", 0))
+    if count > prev_count:
+        # a new experiment was recorded since the last stop: track whether it was accepted
+        if last.get("status") == "keep":
+            guard["no_keep"] = 0
+        else:
+            guard["no_keep"] = int(guard.get("no_keep", 0)) + 1
+        guard = {"count": count, "no_progress": 0, "no_keep": guard.get("no_keep", 0)}
     else:
         guard["no_progress"] = int(guard.get("no_progress", 0)) + 1
     guard["last_stop"] = time.time()
     guard_path.write_text(json.dumps(guard), encoding="utf-8")
+    # Measured convergence: many experiments ran but none improved -> optimization is exhausted. Stop the
+    # loop ourselves (clear the flag) rather than ever telling the human to run a stop command.
+    if int(guard.get("no_keep", 0)) >= CONVERGE_AFTER:
+        try:
+            (campaign / ".fast-kernel" / "loop.active").unlink()
+        except OSError:
+            pass
+        print(f"fast-kernel loop: optimization exhausted ({CONVERGE_AFTER} consecutive experiments with no accepted "
+              f"improvement on campaign `{campaign}`); the loop has stopped itself.", file=sys.stderr)
+        return 0
     if guard["no_progress"] >= MAX_NO_PROGRESS:
         guard["no_progress"] = 0
         guard_path.write_text(json.dumps(guard), encoding="utf-8")
-        print(f"fast-kernel loop guard: no new experiment in {MAX_NO_PROGRESS} consecutive stops; letting the session end. "
-              f"Run `fast-kernel status` / `/fk-experiment` to continue.", file=sys.stderr)
+        print(f"fast-kernel loop guard: no new experiment in {MAX_NO_PROGRESS} consecutive stops; letting the session end.",
+              file=sys.stderr)
         return 0
-    last = last_experiment(campaign) or {}
     reason = (
         f"fast-kernel loop is ACTIVE for campaign `{campaign}` ({count} experiments so far; last: "
         f"#{last.get('number', '-')} [{last.get('status', '-')}] {str(last.get('description', ''))[:80]}). "
-        f"Continue with the next experiment now: run `fast-kernel status --brief` and `fast-kernel ideas` in that directory, pick the "
-        f"highest-Amdahl untried idea, edit only candidate/, then `fast-kernel eval -m ...` and `fast-kernel note ...`. "
-        f"Do not ask whether to continue. To end the loop a human runs `fast-kernel loop stop`."
+        f"Continue with the next experiment now: run `fast-kernel status --brief` and `fast-kernel ideas` in that directory, "
+        f"pick the target with the most measured headroom, discover the technique yourself, edit only candidate/, then "
+        f"`fast-kernel eval -m ...` and `fast-kernel note ...`. If a kernel needs a missing library, install it and continue. "
+        f"Do not ask whether to continue; the loop stops itself when the optimization is exhausted."
     )
     print(json.dumps({"decision": "block", "reason": reason}))
     return 0

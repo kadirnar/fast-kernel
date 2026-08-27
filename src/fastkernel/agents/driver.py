@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -20,9 +22,14 @@ from ..campaign import Campaign
 from ..util import now_iso, run, which
 from .prompts import iteration_prompt
 
+# After this many consecutive experiments with no accepted improvement the optimization is treated as
+# exhausted and the autonomous loop stops itself -- it never asks a human whether to keep going.
+CONVERGE_AFTER = 15
+
 DEFAULT_ALLOWED_TOOLS = [
     "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "LS",
     "Bash(fast-kernel *)", "Bash(fk *)", "Bash(uv run *)", "Bash(python *)", "Bash(python3 *)", "Bash(.venv/bin/python *)",
+    "Bash(uv pip install *)", "Bash(pip install *)", "Bash(uv pip *)",
     "Bash(git diff *)", "Bash(git log *)", "Bash(git status *)", "Bash(git show *)", "Bash(cat *)", "Bash(ls *)", "Bash(head *)",
     "Bash(tail *)", "Bash(grep *)", "Bash(nvidia-smi *)", "Bash(cd *)", "Bash(sed -n *)", "Bash(wc *)",
 ]
@@ -68,6 +75,38 @@ def run_iteration(campaign: Campaign, *, prompt: str, model: str | None = None, 
     summary: dict[str, Any] = {"agent": agent_name, "started_at": now_iso(), "turns": 0, "tool_uses": 0, "text": []}
     proc = subprocess.Popen(argv, cwd=str(project_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                             start_new_session=True)
+
+    def _kill_tree():
+        # start_new_session put the child in its own process group; kill the whole group so the
+        # node/tool subprocesses claude spawned die with it instead of leaking (GPU/CPU held).
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+
+    # Watchdog: kills the tree even if the child goes completely silent (readline would otherwise
+    # block forever and the in-loop timeout check would never run).
+    timed_out = {"v": False}
+
+    def _on_timeout():
+        timed_out["v"] = True
+        _kill_tree()
+
+    watchdog = threading.Timer(timeout, _on_timeout)
+    watchdog.daemon = True
+    watchdog.start()
+
+    # Drain stderr concurrently: a child that writes more than the ~64 KB pipe buffer to stderr while
+    # we are still reading stdout would otherwise deadlock (it blocks on write, we block on read).
+    stderr_chunks: list[str] = []
+
+    def _drain_stderr():
+        if proc.stderr:
+            for chunk in proc.stderr:
+                stderr_chunks.append(chunk)
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
     try:
         assert proc.stdout
         for line in proc.stdout:
@@ -79,15 +118,16 @@ def run_iteration(campaign: Campaign, *, prompt: str, model: str | None = None, 
             except json.JSONDecodeError:
                 continue
             _handle_stream_message(campaign, agent_name, msg, summary, verbose)
-            if time.perf_counter() - started > timeout:
-                proc.kill()
-                summary["error"] = "iteration timeout"
-                break
         proc.wait(timeout=30)
     except Exception as exc:  # noqa: BLE001
         summary["error"] = str(exc)
-        proc.kill()
-    stderr = proc.stderr.read() if proc.stderr else ""
+        _kill_tree()
+    finally:
+        watchdog.cancel()
+    if timed_out["v"]:
+        summary["error"] = "iteration timeout"
+    stderr_thread.join(timeout=5)
+    stderr = "".join(stderr_chunks)
     summary["returncode"] = proc.returncode
     summary["seconds"] = round(time.perf_counter() - started, 1)
     if proc.returncode not in (0, None) and stderr:
@@ -178,10 +218,15 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
                             iterations=worker_iterations) if agents > 0 else []
     store.event("loop.started", mode="auto", agents=agents, iterations=iterations, model=model)
     done = 0
+    no_keep = 0
     try:
         while True:
             if campaign.has_flag("stop"):
                 print("stop flag set; leaving the loop")
+                break
+            if no_keep >= CONVERGE_AFTER:
+                print(f"optimization exhausted: {CONVERGE_AFTER} consecutive experiments with no accepted improvement; stopping.")
+                store.event("loop.converged", mode="auto", no_keep=no_keep, completed=done)
                 break
             if campaign.has_flag("paused"):
                 time.sleep(2.0)
@@ -201,8 +246,15 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
                 time.sleep(sleep_between)
                 continue
             done += 1
-            prompt = iteration_prompt(campaign.root, iteration=store.next_experiment_number())
+            before = store.next_experiment_number()
+            prompt = iteration_prompt(campaign.root, iteration=before)
             summary = run_iteration(campaign, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode)
+            experiments = store.list_experiments()
+            last = experiments[-1] if experiments else {}
+            if last.get("number", -1) >= before and last.get("status") == "keep":
+                no_keep = 0
+            elif last.get("number", -1) >= before:
+                no_keep += 1   # an experiment ran but was not accepted
             if summary.get("error") or (summary.get("is_error") and summary.get("subtype") != "error_max_turns"):
                 print(f"iteration problem: {summary.get('error') or summary.get('result', '')[:300]}")
                 time.sleep(10.0)

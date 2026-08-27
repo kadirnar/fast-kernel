@@ -34,8 +34,10 @@ learn (KNOWLEDGE.md, results.tsv)  ←  keep / revert (harness decides)  ←  fa
 
 1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md` and the last experiments
    (`fast-kernel history -n 5`). If `PLAN.md` is stale, `fast-kernel profile`.
-2. Pick **one** hypothesis with the largest expected *end-to-end* gain (Amdahl: share × (1 − 1/expected)).
-   Prefer untried target × technique pairs; never resubmit an identical failed edit.
+2. Pick **one** target — the one with the largest measured share of end-to-end time — and form **one**
+   hypothesis for it. Which technique/backend to try is yours to discover from the measurements (nothing
+   tells you the method or how much it will help). Prefer untried target × approach pairs; never resubmit
+   an identical failed edit.
 3. Implement it under `candidate/` only (`candidate/__init__.py: apply(model, ctx)`, kernels in
    `candidate/kernels/`). Copy starters from `fast-kernel templates` when useful.
 4. `fast-kernel eval -m "<one-line hypothesis>" --technique <ids> --target <id>`.
@@ -66,8 +68,9 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
   on this GPU" as a conclusion. Re-run `fast-kernel probe` after every environment fix.
 - **Keep the public API of the model.** Same inputs, same outputs (within the gate policy), same
   methods (`encode/decode`, `generate/forward`, `model(images)` …).
-- **Dependencies**: prefer what is installed. If a new package is genuinely required, install it with
-  `uv pip install` inside the project venv and record it in KNOWLEDGE.md.
+- **Dependencies**: prefer what is installed, but a missing library is never a blocker and never a
+  reason to ask a human. Install it yourself with `uv pip install` inside the project venv (the harness
+  also auto-installs a backend's package on probe) and record it in KNOWLEDGE.md.
 - **Time**: an experiment that exceeds the harness timeout is a crash. Compile time is excluded from
   latency, so autotuning is fine — but cache tuned configs under `candidate/tuned/`.
 
@@ -89,31 +92,38 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
 
 ## Choosing what to do next (search strategy)
 
-- **Start with structure**: whole-workload launch/overhead (CUDA graphs, fusion, torch.compile) beats
-  peak-FLOPS tuning for inference at small batch. `PLAN.md` says whether the GPU is idle.
-- **Then the top targets by Amdahl gain**, one technique at a time, lowest tier first (block tuning
-  and memory access before persistent kernels and warp specialization).
-- **Plateau** (5+ consecutive discards on a target): switch technique tier, switch backend
-  (Triton ↔ TileLang ↔ CuTe DSL ↔ CUDA C++ ↔ hub kernels), or switch target. Then widen the scope:
-  combine two accepted kernels, remove intermediate copies between them, revisit earlier targets with
-  the new profile (the ranking changes after every keep).
-- **Never done**: when every listed idea is tried, re-profile, look at the top kernels list, question
-  data movement (dtypes, layouts, allocations), and invent new hypotheses. Record them in KNOWLEDGE.md.
+- **Measure, then decide.** `PLAN.md` and `fast-kernel ideas` give you *measured facts only* — each
+  target's share of GPU time, its boundness, kernel counts, and what earlier experiments already tried.
+  They deliberately do **not** name a technique to use or predict a speedup: which backend and which
+  transformation to try is yours to discover from the profile, the top-kernels list, KNOWLEDGE.md and
+  the backend skills. Never assume a method wins before you have measured it.
+- **Pick the target with the most headroom** (biggest measured share / most launches). Change one thing,
+  measure, keep or revert. Prefer untried target × approach pairs; never resubmit an identical failed edit.
+- **Plateau** (5+ consecutive discards on a target): switch approach, switch backend, or switch target,
+  then widen the scope — combine two accepted kernels, remove intermediate copies, and revisit earlier
+  targets (the ranking changes after every keep).
+- **Never done**: when the obvious ideas are tried, re-profile, look at the top kernels, question data
+  movement (dtypes, layouts, allocations), and invent new hypotheses. Record them in KNOWLEDGE.md.
 - Numerics are not a lever you pull: under `strict` (the default) every kernel reproduces the reference
   outputs (fp32 accumulation, exact argmins via coarse pass + exact re-rank). Only a human may set a
-  different policy in `GOAL.md`.
+  different policy in `GOAL.md`. Never distillation, retraining or fine-tuning — the outputs stay the
+  frozen reference model's.
 
-## Backends (skills) — decision table
+## Backends (skills) — references, not prescriptions
 
-| symptom (from PLAN.md) | first choice | skill |
-|---|---|---|
-| GPU busy < 60 % of wall, hundreds of launches | CUDA graphs, then fusion | `/cuda-graphs`, `/torch-compile` |
-| norm / activation / gating / residual chains | fused Triton kernel | `/triton-kernels` |
-| codebook / argmin / cdist | fused distance+argmin (Triton, then persistent) | `/triton-kernels` |
-| small GEMMs, conv1d/conv2d | Triton implicit GEMM with epilogue; TileLang for big tiles | `/triton-kernels`, `/tilelang-kernels` |
-| large GEMM / attention at long T | TileLang / CuTe DSL / hub flash-attn | `/tilelang-kernels`, `/cute-dsl-kernels`, `/hub-kernels` |
-| something no DSL expresses (barriers, PTX) | CUDA C++ via load_inline | `/cuda-cpp-kernels` |
-| numerical mismatch | `/numerical-verification` | |
+These skills document how to implement kernels on each backend. They are references you reach for once
+*your* measurement points you at a target — nothing here maps a symptom to a mandated method:
+
+- `/cuda-graphs`, `/torch-compile` — capturing / fusing a launch-bound workload
+- `/triton-kernels` — fused elementwise/norm/gating chains, epilogue-fused GEMMs, implicit-GEMM convs,
+  codebook argmin, fused attention, persistent kernels
+- `/tilelang-kernels`, `/cute-dsl-kernels`, `/hub-kernels` — pipelined GEMM/attention, hand-scheduled
+  tiles, pre-built hub kernels
+- `/cuda-cpp-kernels` — anything a DSL cannot express (barriers, PTX, warp specialization)
+- `/numerical-verification` — keeping a kernel bit-faithful to the reference
+
+A backend that is not installed is not a limit: install it (`uv pip install ...`, the harness also does
+this automatically on probe) or use `fast-kernel toolchain install`, then continue.
 
 ## Roles (multi-agent)
 
@@ -132,5 +142,9 @@ workers on git worktrees: `fast-kernel auto --agents N` (proposals are re-measur
 
 ## Never stop
 
-The loop ends only when a human runs `fast-kernel stop` / `fast-kernel loop stop` or interrupts the
-session. "Is this a good stopping point?" is not a question this program asks.
+The loop runs autonomously until the optimization is **exhausted** — a measured convergence signal:
+`CONVERGE_AFTER` consecutive experiments that ran but improved nothing. At that point the loop stops
+itself (the `loop.active` flag is cleared). Until then it keeps profiling, hypothesising, evaluating and
+learning. It never asks the human whether to continue, and it never asks the human to run a stop command
+— "Is this a good stopping point?" is not a question this program asks. A human may still stop it early
+with `fast-kernel stop` / `fast-kernel loop stop`, but the program never solicits that.

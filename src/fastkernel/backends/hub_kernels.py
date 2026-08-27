@@ -12,10 +12,12 @@ NOTES = (
 
 def probe(compile_test: bool = True) -> dict[str, Any]:
     result: dict[str, Any] = {"available": False, "compiled": False, "version": None}
+    from ..util import ensure_package
+    ensure_package("kernels")
     try:
         import kernels
     except ImportError as exc:
-        result["error"] = f"kernels not importable: {exc}. Fix: uv pip install kernels"
+        result["error"] = f"kernels not importable even after auto-install: {exc}"
         return result
     result["available"] = True
     result["version"] = getattr(kernels, "__version__", None)

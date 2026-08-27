@@ -15,6 +15,38 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+def ensure_package(module: str, pip_spec: str | None = None) -> bool:
+    """Import `module`; if it is missing, auto-install `pip_spec` (default: `module`) into the active
+    venv and retry. Returns True if the module is importable afterwards. The agent never has to ask a
+    human to install anything; install time is not part of any measured latency (compile/setup is
+    excluded from the benchmark)."""
+    import importlib
+    try:
+        importlib.import_module(module)
+        return True
+    except ImportError:
+        pass
+    spec = pip_spec or module
+    commands = []
+    uv = shutil.which("uv")
+    if uv:
+        commands.append([uv, "pip", "install", spec])
+    commands.append([sys.executable, "-m", "pip", "install", spec])
+    for cmd in commands:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        except (subprocess.SubprocessError, OSError):
+            continue
+        if proc.returncode == 0:
+            break
+    importlib.invalidate_caches()
+    try:
+        importlib.import_module(module)
+        return True
+    except ImportError:
+        return False
+
+
 def read_json(path: Path, default: Any = None) -> Any:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))

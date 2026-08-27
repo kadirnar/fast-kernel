@@ -16,10 +16,12 @@ NOTES = (
 def probe(compile_test: bool = True) -> dict[str, Any]:
     result: dict[str, Any] = {"available": False, "compiled": False, "version": None}
     ensure_cuda_home()
+    from ..util import ensure_package
+    ensure_package("tilelang")
     try:
         import tilelang
     except ImportError as exc:
-        result["error"] = f"tilelang not importable: {exc}. Fix: uv pip install tilelang"
+        result["error"] = f"tilelang not importable even after auto-install: {exc}"
         return result
     result["available"] = True
     result["version"] = getattr(tilelang, "__version__", None)

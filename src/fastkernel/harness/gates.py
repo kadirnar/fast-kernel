@@ -88,12 +88,17 @@ def run_gates(spec: ModelSpec, candidate: Any, workloads: list[Workload], refere
             if hasattr(spec, "observe_inputs"):
                 spec.observe_inputs(w, inputs[w.name])
             checks.extend(spec.compare(w, reference_outputs[w.name], outputs[w.name]))
+        if not checks:
+            return [GateCheck("numerical/none", False, detail="comparator produced no checks; nothing was verified against the reference")]
         return checks
 
     def determinism():
-        first = outputs.get(primary.name) or run_workload(candidate, primary, inputs[primary.name])
+        first = outputs[primary.name] if primary.name in outputs else run_workload(candidate, primary, inputs[primary.name])
         second = run_workload(candidate, primary, inputs[primary.name])
-        return spec.compare_determinism(primary, first, second)
+        checks = spec.compare_determinism(primary, first, second)
+        if not checks:
+            return [GateCheck("determinism/none", False, detail="determinism comparator produced no checks; nothing was verified")]
+        return checks
 
     def edge():
         checks = []

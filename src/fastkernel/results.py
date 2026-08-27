@@ -16,9 +16,9 @@ def append_row(path: Path, *, exp: int, commit: str, status: str, metric: str, v
     ensure_header(path)
     row = [
         str(exp), commit or "-", status, metric,
-        f"{value:.6f}" if value is not None else "0.000000",
-        f"{speedup:.3f}" if speedup is not None else "0.000",
-        f"{peak_vram_gb:.2f}" if peak_vram_gb is not None else "0.00",
+        f"{value:.6f}" if value is not None else "-",
+        f"{speedup:.3f}" if speedup is not None else "-",
+        f"{peak_vram_gb:.2f}" if peak_vram_gb is not None else "-",
         gates, description.replace("\t", " ").replace("\n", " ").strip(),
     ]
     with path.open("a", encoding="utf-8") as fh:

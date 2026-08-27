@@ -47,10 +47,10 @@ def experiment_detail(campaign: Campaign, number: int) -> dict[str, Any] | None:
     record = campaign.store.get_experiment(number)
     if not record:
         return None
-    exp_dir = Path(record.get("dir") or "")
+    exp_dir = Path(record["dir"]) if record.get("dir") else None
     detail = dict(record)
     detail["compact"] = compact_experiment(record)
-    if exp_dir.exists():
+    if exp_dir is not None and exp_dir.exists():
         detail["patch"] = (exp_dir / "patch.diff").read_text(encoding="utf-8")[:60000] if (exp_dir / "patch.diff").exists() else ""
         detail["log_tail"] = tail_text((exp_dir / "run.log").read_text(encoding="utf-8", errors="replace"), 80) if (exp_dir / "run.log").exists() else ""
         prof = read_json(exp_dir / "profile.json", {}) or {}
