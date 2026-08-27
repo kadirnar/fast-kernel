@@ -153,9 +153,11 @@ def _refresh_statuses(campaign: Campaign, targets: list[dict[str, Any]]) -> list
 
 
 def _print_targets(targets: list[dict[str, Any]]) -> None:
-    print(f"{'#':>2} {'target':44s} {'share':>6} {'bound':8s} {'kernels':>7} tried/acc")
+    print(f"{'#':>2} {'target':44s} {'share':>6} {'SOL':>5} {'bound':8s} {'kernels':>7} tried/acc")
     for t in targets:
-        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {t['boundness']:8s} "
+        sol = t.get("sol_efficiency")
+        sol_str = f"{sol * 100:4.0f}%" if sol is not None else "   -"
+        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {sol_str} {t['boundness']:8s} "
               f"{t.get('kernel_count', 0):>7}  {t.get('attempts', 0)}/{t.get('accepted', 0)}  [{t['id']}]")
 
 
@@ -253,11 +255,13 @@ def cmd_ideas(args) -> None:
         sys.exit("no hotspots yet: run `fast-kernel profile` (or `fast-kernel baseline`) first")
     if args.target:
         targets = [t for t in targets if t["id"] == args.target or t["class"] == args.target]
-    print(f"hotspots by measured share of GPU time (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}).")
+    print(f"hotspots by measured headroom = share x (1 - roofline efficiency) (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}).")
     print("Pick the target with the most headroom; discover the technique/backend yourself from the profile, KNOWLEDGE.md and the skills.")
     shown = 0
     for t in targets:
-        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%  {t['boundness']}-bound  "
+        sol = t.get("sol_efficiency")
+        sol_str = f"  SOL {sol * 100:.0f}% ({(1 - sol) * 100:.0f}% headroom)" if sol is not None else ""
+        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%{sol_str}  {t['boundness']}-bound  "
               f"{t.get('kernel_count', 0)} kernels  ({t.get('attempts', 0)} tried / {t.get('accepted', 0)} accepted)")
         if t.get("hint"):
             print(f"     hint: {t['hint'][:200]}")

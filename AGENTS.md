@@ -93,12 +93,16 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
 ## Choosing what to do next (search strategy)
 
 - **Measure, then decide.** `PLAN.md` and `fast-kernel ideas` give you *measured facts only* — each
-  target's share of GPU time, its boundness, kernel counts, and what earlier experiments already tried.
-  They deliberately do **not** name a technique to use or predict a speedup: which backend and which
-  transformation to try is yours to discover from the profile, the top-kernels list, KNOWLEDGE.md and
-  the backend skills. Never assume a method wins before you have measured it.
-- **Pick the target with the most headroom** (biggest measured share / most launches). Change one thing,
-  measure, keep or revert. Prefer untried target × approach pairs; never resubmit an identical failed edit.
+  target's share of GPU time, its **roofline efficiency (SOL%)** = how close it already runs to this
+  machine's measured bandwidth / FLOP-per-second peak, its boundness, kernel counts, and what earlier
+  experiments already tried. They deliberately do **not** name a technique or predict a speedup: which
+  backend and which transformation to try is yours to discover from the profile, the top-kernels list,
+  KNOWLEDGE.md and the backend skills. Never assume a method wins before you have measured it.
+- **Pick the target with the most measured headroom** = share × (1 − SOL). A target that is a big share
+  of time but already near its roofline (high SOL) has little left to give; a low-SOL target is where
+  real speed hides. The whole-workload roofline efficiency in PLAN.md tells you how close the model as a
+  whole is to the hardware limit. Change one thing, measure, keep or revert. Prefer untried target ×
+  approach pairs; never resubmit an identical failed edit.
 - **Plateau** (5+ consecutive discards on a target): switch approach, switch backend, or switch target,
   then widen the scope — combine two accepted kernels, remove intermediate copies, and revisit earlier
   targets (the ranking changes after every keep).
