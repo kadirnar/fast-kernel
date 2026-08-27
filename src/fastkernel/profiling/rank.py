@@ -52,6 +52,8 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
             grp["instances"].append({"path": mod["path"], "gpu_us": mod["gpu_us"], "kernel_count": mod["kernel_count"],
                                      "shapes": _compact_shapes(mod.get("shapes") or {}), "boundness": mod["boundness"],
                                      "avg_kernel_us": round(mod["avg_kernel_us"], 2)})
+    peak_bw = float(device.get("measured_bandwidth_gbs") or 500.0) * 1e9
+    peak_fp32 = float(device.get("measured_fp32_tflops") or device.get("measured_bf16_tflops") or 30.0) * 1e12
     hint_by_symbol = {h.get("symbol", ""): h for h in hints}
     targets: list[dict[str, Any]] = []
     for grp in groups.values():
@@ -63,11 +65,22 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
             category = hint["category"]
         exp = expected_speedup(category, bound)
         gain = fraction * (1 - 1 / exp)
+        # Roofline efficiency = achieved / measured Speed-of-Light, purely measured (KernelAgent-style):
+        # how close this hotspot already runs to the hardware limit. High SOL -> little headroom left.
+        us = grp["gpu_us"] * 1e-6
+        achieved_gbs = (grp["bytes"] / us / 1e9) if us > 0 and grp["bytes"] else 0.0
+        achieved_tflops = (grp["flops"] / us / 1e12) if us > 0 and grp["flops"] else 0.0
+        mem_eff = min(1.0, achieved_gbs * 1e9 / peak_bw) if grp["bytes"] else 0.0
+        comp_eff = min(1.0, achieved_tflops * 1e12 / peak_fp32) if grp["flops"] else 0.0
+        sol = max(mem_eff, comp_eff)               # measured roofline efficiency, 0..1
+        headroom = fraction * (1.0 - sol)          # measured end-to-end headroom, not a technique prior
         targets.append({
             "id": _target_id(grp["key"]), "title": f"{grp['class']} ({category}, {bound}-bound)", "class": grp["class"],
             "category": category, "boundness": bound, "fraction": fraction, "gpu_us": round(grp["gpu_us"], 2),
             "kernel_count": grp["kernel_count"], "instances": grp["instances"], "instance_count": len(grp["instances"]) if len(grp["instances"]) < 12 else sum(1 for m in modules if m["category"] == grp["category"] and (m.get("class") or m["path"].rsplit(".", 1)[-1]) == grp["class"]),
             "expected_speedup": exp, "amdahl_gain": gain, "scope": "module-group",
+            "achieved_gbs": round(achieved_gbs, 1), "achieved_tflops": round(achieved_tflops, 2),
+            "sol_efficiency": round(sol, 3), "headroom": headroom,
             "flops": grp["flops"], "bytes": grp["bytes"], "hint": (hint or {}).get("note", ""),
         })
     # whole-workload launch-bound target
@@ -81,6 +94,7 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
                 "gpu_us": round((wall_ms - gpu_busy_ms) * 1e3, 1), "kernel_count": profile.get("kernel_count", 0),
                 "instances": [], "instance_count": 1, "expected_speedup": exp,
                 "amdahl_gain": idle_fraction * (1 - 1 / exp), "scope": "workload",
+                "sol_efficiency": round(1.0 - idle_fraction, 3), "headroom": idle_fraction,
                 "hint": f"GPU busy only {100 * (1 - idle_fraction):.0f}% of wall time across {profile.get('kernel_count', 0)} launches "
                         f"(avg kernel {profile.get('avg_kernel_us') or 0:.1f} us).",
             })
@@ -92,7 +106,12 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
         target["accepted"] = sum(1 for t in tried if t["status"] == "accepted")
         # demote targets whose best techniques all failed; never to zero (ideas change)
         rejected_share = (sum(1 for t in tried if t["status"] == "rejected") / max(1, len(target["techniques"])))
-        target["score"] = target["amdahl_gain"] * (1.0 - 0.5 * rejected_share)
+        # Rank by MEASURED headroom (share x (1 - roofline efficiency)), not a technique-speedup prior.
+        # Fall back to raw share when the target has no shape info to estimate roofline from.
+        base = target.get("headroom")
+        if base is None:
+            base = target["fraction"]
+        target["score"] = base * (1.0 - 0.5 * rejected_share)
     targets.sort(key=lambda t: -t["score"])
     for rank, target in enumerate(targets, 1):
         target["rank"] = rank

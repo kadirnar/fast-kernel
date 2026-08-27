@@ -153,9 +153,11 @@ def _refresh_statuses(campaign: Campaign, targets: list[dict[str, Any]]) -> list
 
 
 def _print_targets(targets: list[dict[str, Any]]) -> None:
-    print(f"{'#':>2} {'target':44s} {'share':>6} {'bound':8s} {'kernels':>7} tried/acc")
+    print(f"{'#':>2} {'target':44s} {'share':>6} {'SOL':>5} {'bound':8s} {'kernels':>7} tried/acc")
     for t in targets:
-        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {t['boundness']:8s} "
+        sol = t.get("sol_efficiency")
+        sol_str = f"{sol * 100:4.0f}%" if sol is not None else "   -"
+        print(f"{t['rank']:>2} {t['title'][:44]:44s} {t['fraction'] * 100:5.1f}% {sol_str} {t['boundness']:8s} "
               f"{t.get('kernel_count', 0):>7}  {t.get('attempts', 0)}/{t.get('accepted', 0)}  [{t['id']}]")
 
 
@@ -196,6 +198,9 @@ def cmd_status(args) -> None:
           f"{fmt((inc.get('noise_floor') or 0) * 100, 3)}%, threshold {fmt(max(summary['min_improvement'], inc.get('noise_floor') or 0) * 100, 3)}%)")
     if last:
         print(f"  last: #{last['number']} [{last['status']}] {last.get('description', '')[:80]} -> {last.get('reason', '')[:100]}")
+    beam = campaign.beam(3)
+    if len(beam) > 1:
+        print("  beam: " + ", ".join(f"#{e['number']}({fmt(e['value'])})" for e in beam))
     hotspots = read_json(campaign.hotspots_path, {}) or {}
     if hotspots.get("targets") and not args.brief:
         print("  top targets:")
@@ -253,17 +258,25 @@ def cmd_ideas(args) -> None:
         sys.exit("no hotspots yet: run `fast-kernel profile` (or `fast-kernel baseline`) first")
     if args.target:
         targets = [t for t in targets if t["id"] == args.target or t["class"] == args.target]
-    print(f"hotspots by measured share of GPU time (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}).")
+    print(f"hotspots by measured headroom = share x (1 - roofline efficiency) (workload {hotspots.get('workload')}, after exp #{hotspots.get('experiment')}).")
     print("Pick the target with the most headroom; discover the technique/backend yourself from the profile, KNOWLEDGE.md and the skills.")
     shown = 0
     for t in targets:
-        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%  {t['boundness']}-bound  "
+        sol = t.get("sol_efficiency")
+        sol_str = f"  SOL {sol * 100:.0f}% ({(1 - sol) * 100:.0f}% headroom)" if sol is not None else ""
+        print(f"\n[{t['rank']}] {t['title']}  id={t['id']}  share {t['fraction'] * 100:.1f}%{sol_str}  {t['boundness']}-bound  "
               f"{t.get('kernel_count', 0)} kernels  ({t.get('attempts', 0)} tried / {t.get('accepted', 0)} accepted)")
         if t.get("hint"):
             print(f"     hint: {t['hint'][:200]}")
         if t.get("instances"):
             inst = t["instances"][0]
             print(f"     example: {inst['path']} {inst['gpu_us']:.1f} us / {inst['kernel_count']} kernels")
+        from . import memory as _memory
+        mem = _memory.retrieve(campaign, t, k=3)
+        for e in (mem.get("similar") or [])[-3:]:
+            print(f"     memory: exp #{e.get('number')} [{e.get('status')}] {e.get('outcome')}")
+        for e in (mem.get("repair_chain") or [])[-2:]:
+            print(f"     repair: exp #{e.get('number')} failed with {e.get('failure_class')} -- do not repeat")
         shown += 1
         if shown >= args.limit:
             break
@@ -328,7 +341,34 @@ def cmd_auto(args) -> None:
     campaign = _campaign(args)
     from .agents.driver import run_auto
     run_auto(campaign, iterations=args.iterations, model=args.model, max_turns=args.max_turns, permission_mode=args.permission_mode,
-             agents=args.agents, worker_iterations=args.worker_iterations)
+             agents=args.agents, worker_iterations=args.worker_iterations, islands=args.islands)
+
+
+def cmd_memory(args) -> None:
+    from . import memory as _memory
+    campaign = _campaign(args)
+    hotspots = read_json(campaign.hotspots_path, {}) or {}
+    targets = hotspots.get("targets") or []
+    target = None
+    if args.target:
+        target = next((t for t in targets if t["id"] == args.target or t["class"] == args.target), {"id": args.target})
+    elif targets:
+        target = targets[0]
+    if not target:
+        sys.exit("no target: run `fast-kernel profile` first or pass --target")
+    mem = _memory.retrieve(campaign, target, cross_campaign=not args.no_cross_campaign)
+    print(_memory.render_memory(mem))
+
+
+def cmd_beam(args) -> None:
+    campaign = _campaign(args)
+    beam = campaign.beam(args.k)
+    if not beam:
+        sys.exit("no accepted experiments yet")
+    metric = campaign.goal.target_metric
+    print(f"beam: top-{len(beam)} accepted candidates by {metric} (the search population):")
+    for i, e in enumerate(beam, 1):
+        print(f"  {i}. #{e['number']} {metric}={fmt(e['value'])} @ {e['commit'][:10]}  {e['description']}")
 
 
 def cmd_worker(args) -> None:
@@ -556,11 +596,21 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("auto", help="headless endless loop with `claude -p` (optionally N parallel worktree workers)")
     p.add_argument("--iterations", type=int)
     p.add_argument("--agents", type=int, default=0, help="parallel workers (0 = single agent loop)")
+    p.add_argument("--islands", type=int, default=1, help="partition workers into N islands, each exploring a different band of the ranked targets")
     p.add_argument("--worker-iterations", type=int)
     p.add_argument("--model")
     p.add_argument("--max-turns", type=int, default=80)
     p.add_argument("--permission-mode", default="acceptEdits")
     p.set_defaults(fn=cmd_auto)
+
+    p = sub.add_parser("memory", help="measured history of past experiments for a target (repair chain + what worked)")
+    p.add_argument("--target", help="target id or class; default: the top target")
+    p.add_argument("--no-cross-campaign", action="store_true", help="only this campaign's memory")
+    p.set_defaults(fn=cmd_memory)
+
+    p = sub.add_parser("beam", help="the top-k accepted candidates (the search population, not just the incumbent)")
+    p.add_argument("-k", type=int, default=5)
+    p.set_defaults(fn=cmd_beam)
 
     p = sub.add_parser("worker", help="run one parallel worker (own worktree + hotspot lease)")
     p.add_argument("--name", required=True)

@@ -4,17 +4,21 @@ from pathlib import Path
 
 
 def iteration_prompt(campaign_root: Path, *, target: str | None = None, technique: str | None = None, worker: str | None = None,
-                     iteration: int | None = None) -> str:
+                     iteration: int | None = None, memory_note: str = "") -> str:
     focus = ""
     if target or technique:
         focus = ("\nFocus for this iteration: " + (f"target `{target}` " if target else "") + (f"technique `{technique}` " if technique else "")
                  + "(from PLAN.md / `fast-kernel ideas`). If it is clearly exhausted, pick the next best untried idea.")
+    if memory_note:
+        focus += ("\n\n" + memory_note + "\nThis is measured history, not advice: use it to avoid repeating a failed edit "
+                  "and to build on what already worked; the technique you try next is still yours to choose.")
     who = f" You are worker `{worker}`; the campaign directory below is your private worktree." if worker else ""
     return f"""Run exactly ONE fast-kernel experiment in the campaign at `{campaign_root}` and then stop.{who}
 {f'This is loop iteration {iteration}.' if iteration is not None else ''}
 Follow AGENTS.md (the research program) strictly:
-1. `cd {campaign_root}` then read `fast-kernel status --brief`, `fast-kernel ideas`, PLAN.md, KNOWLEDGE.md and the last
-   3 experiments (`fast-kernel history -n 3`). Never repeat an identical failed edit.
+1. `cd {campaign_root}` then read `fast-kernel status --brief`, `fast-kernel ideas`, PLAN.md, KNOWLEDGE.md, the last
+   3 experiments (`fast-kernel history -n 3`), and `fast-kernel memory --target <id>` for the measured history of the
+   target you pick (what was tried, what worked, what failed). Never repeat an identical failed edit.
 2. Pick ONE target -- the one with the most measured headroom (biggest share of GPU time / most launches).
    The technique and backend are yours to discover from the profile, the top kernels, KNOWLEDGE.md and the
    backend skills; nothing tells you which method to use or how much it will speed up. Never repeat an

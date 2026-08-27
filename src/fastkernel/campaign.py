@@ -139,6 +139,27 @@ class Campaign:
         write_json(self.incumbent_path, incumbent.to_dict())
         self.store.set("incumbent", incumbent.to_dict())
 
+    def beam(self, k: int = 3) -> list[dict[str, Any]]:
+        """The top-k distinct accepted experiments by the primary metric — a small population of strong
+        candidates (KernelAgent's beam), not just the single incumbent. Measured facts; the keep/revert
+        lineage still promotes the global best as the incumbent, but the beam lets the search see (and
+        explore around) other strong points instead of collapsing to one."""
+        keeps = [e for e in self.store.list_experiments()
+                 if e.get("status") in ("keep", "baseline") and e.get("commit") and e.get("primary_value") is not None]
+        keeps.sort(key=lambda e: e["primary_value"], reverse=not self.goal.minimize)
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for e in keeps:
+            commit = e["commit"]
+            if commit in seen:
+                continue
+            seen.add(commit)
+            out.append({"number": e["number"], "commit": commit, "value": e["primary_value"],
+                        "description": (e.get("description") or "")[:80]})
+            if len(out) >= k:
+                break
+        return out
+
     # ---- control flags -----------------------------------------------------------------
     def flag(self, name: str) -> Path:
         return self.state_dir / name
