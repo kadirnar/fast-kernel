@@ -21,12 +21,14 @@ audio codes and the same waveform as the original.
    `cuda-cpp-kernels`, `torch-compile`, `hub-kernels`.
 3. The harness you must never edit but must understand: `src/fastkernel/harness/gates.py` (the five
    correctness stages), `src/fastkernel/harness/evaluate.py` (keep/revert logic), `src/fastkernel/harness/run.py`,
-   `src/fastkernel/profiling/` (how targets are ranked), `src/fastkernel/playbook.py` (technique ids),
+   `src/fastkernel/profiling/` (how targets are ranked by measured headroom), `src/fastkernel/memory.py`
+   (the campaign's measured memory: reflexions, repair chains, failure classes),
    `src/fastkernel/backends/templates/` (starter kernels) and `src/fastkernel/backends/graphs.py`.
 4. The model spec: `src/fastkernel/models/mimi.py` — it defines the reference oracle, the workloads, the exact
    correctness checks and the hotspot hints. Read the model's own source too (`transformers/models/mimi/modeling_mimi.py` in site-packages).
 5. The campaign, once it exists: `campaigns/mimi/GOAL.md` (objective, metric, quality policy),
-   `PLAN.md` (ranked targets measured on this machine, with shapes and technique status), `KNOWLEDGE.md`
+   `PLAN.md` (ranked targets measured on this machine: share of GPU time, roofline efficiency (SOL),
+   shapes), `KNOWLEDGE.md`
    (insights and the experiment log), `results.tsv`, and `experiments/NNNN-*/` (metrics, gates,
    profile, patch, log of every experiment).
 
@@ -48,9 +50,11 @@ audio codes and the same waveform as the original.
 6. `uv run fast-kernel dashboard --root campaigns` in the background — the live graph of every
    experiment (it prints the URL; tell me once).
 7. `uv run fast-kernel loop start` — the Stop hook keeps this session iterating.
-8. The loop, forever: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
-   one hypothesis with the largest measured end-to-end gain (share x (1 - 1/expected), untried first,
-   larger measured share first, lower tier first) → implement it only under `candidate/`
+8. The loop: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
+   `fast-kernel memory --target <id>` (what was already measured on this target: what worked, which
+   failures not to repeat) → one hypothesis for the target with the most measured headroom
+   (share x (1 - roofline efficiency)); which technique and backend to use is yours to discover from the
+   measurements, nothing prescribes it → implement it only under `candidate/`
    (`candidate/__init__.py: apply(model, ctx)`, kernels in `candidate/kernels/`) → self-test on the real
    shapes → `fast-kernel eval -m "<one line>" --technique <ids> --target <id>` → read the verdict →
    `fast-kernel note "<insight with numbers>"` → next. Each experiment builds on the accepted incumbent
@@ -61,8 +65,8 @@ audio codes and the same waveform as the original.
 Nothing about the hardware or the model is given to you in advance and nothing constrains what you may
 try. Where the time goes is measured by `fast-kernel profile` on this machine; which backends compile is
 measured by `fast-kernel probe`; whether an idea helps is measured by `fast-kernel eval`. Every hypothesis
-comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md). Any technique from
-`playbook.py` and any backend may be tried in any order; ideas that failed here are facts about this
+comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md, `fast-kernel memory`).
+Any technique and any backend may be tried in any order; ideas that failed here are facts about this
 model on this machine, recorded with numbers, never generalised. Never write a device or vendor name into
 notes, code or reports, and never conclude that something is unsupported — fix the environment, re-probe,
 or take another backend.
@@ -80,8 +84,10 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 - `fk-verifier` on every failed gate (root cause and the minimal exact fix), `fk-reviewer` before an
   expensive evaluation (API preserved? hidden host syncs? simpler version?), `fk-benchmarker` when
   numbers look noisy, `fk-librarian` for references, templates and prior experiments.
-- Alternatively run headless workers: `uv run fast-kernel auto --agents 3` (worktrees, hotspot leases,
-  inbox promotion) and keep watching the dashboard.
+- Alternatively run headless workers: `uv run fast-kernel auto --agents 3 --islands 2` (worktrees,
+  hotspot leases, island populations that explore different bands of the ranked targets, inbox
+  promotion) and keep watching the dashboard. `fast-kernel beam` shows the top-k accepted candidates —
+  the search population, not just the single incumbent.
 
 ## Rules (from AGENTS.md; the harness enforces them, you follow them)
 
@@ -91,15 +97,22 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
 - Quality contract: outputs must match the original model — identical discrete audio codes, decoded waveform allclose (rtol 2e-4, atol 2e-5), identical results on the 0.25 s / 5 s / noise inputs and on the 50 ms, odd-length and batch-2 edge cases. Under the default `strict`
   policy this is checked on every workload, deterministically, and on the edge inputs. You never change
   the policy; if an idea needs looser numerics, write "needs the human's decision" in KNOWLEDGE.md and move on.
-- Crashes: `fast-kernel show <N> --log`; trivial (typo, import, stride, meta tensor) → fix and rerun
-  once; fundamental → note it and take the next idea; the same crash three times → abandon the approach.
-- Plateaus (5 discards on a target): change technique tier, then backend, then target; then widen the
+- Crashes: `fast-kernel show <N> --log` also prints a failure class (compile, import, shape,
+  illegal-memory, oom, timeout, numerical, determinism, …) — route by it; trivial (typo, import, stride,
+  meta tensor) → fix and rerun once; fundamental → note it and take the next idea; the same crash three
+  times → abandon the approach.
+- A missing library is never a blocker and never a reason to ask me: install it yourself
+  (`uv pip install ...`; the harness also auto-installs a backend's package on probe) and note it.
+- Plateaus (5 discards on a target): change approach, then backend, then target; then widen the
   scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
 - Report as short lines: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
   Never end a turn with a question. Never ask whether to continue.
 
 ## Stopping
 
-Only I stop this: when I write "Stop optimizing." run `fast-kernel loop stop` (and `fast-kernel stop`
-if headless workers run). The campaign is persisted; the same sentence later continues it.
+Never ask me whether to continue and never ask me to run a stop command. The loop ends itself when the
+optimization is exhausted — a measured signal: 15 consecutive experiments that ran but improved nothing
+(the `loop.active` flag is then cleared automatically). I may still stop it early by writing
+"Stop optimizing.", which is your cue to run `fast-kernel loop stop` (and `fast-kernel stop` if headless
+workers run). The campaign is persisted either way; the same sentence later continues it.
 ```

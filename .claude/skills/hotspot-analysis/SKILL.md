@@ -1,6 +1,6 @@
 ---
 name: hotspot-analysis
-description: How to read a fast-kernel profile (module attribution, kernel counts, GPU-busy ratio, roofline boundness) and turn it into the next hypothesis with Amdahl's law. Use when deciding what to optimize next.
+description: How to read a fast-kernel profile (module attribution, kernel counts, GPU-busy ratio, roofline boundness) and turn it into the next hypothesis from the measured headroom. Use when deciding what to optimize next.
 user-invocable: false
 ---
 
@@ -9,7 +9,7 @@ user-invocable: false
 `profile.json` / `PLAN.md` contain: `wall_ms` (one call, no profiler), `gpu_busy_ms` (union of kernel
 intervals), `gpu_busy_ratio`, `kernel_count`, `avg_kernel_us`, per-module rows (`path`, `class`, `gpu_us`,
 `kernel_count`, `category`, `boundness`, `shapes`, FLOP/byte estimates, % of peak) and ranked `targets`
-(module-class groups) with `fraction`, `expected_speedup`, `amdahl_gain`, `techniques[]` and their status.
+(module-class groups) with `fraction`, `sol_efficiency`, `headroom`, `kernel_count` and the tried/accepted counts.
 
 ## Rules
 
@@ -23,9 +23,10 @@ intervals), `gpu_busy_ratio`, `kernel_count`, `avg_kernel_us`, per-module rows (
 4. **Compute-bound** (intensity > ridge, % of peak low) → tensor cores (bf16/TF32 per policy), tile/block
    tuning, split-K when SMs are underfilled, better pipelining (num_stages), TileLang/CuTe for large tiles.
 5. **Sequential chains** (RVQ stages, decode steps) → one persistent kernel or one CUDA graph for the chain.
-6. **Amdahl**: end-to-end gain = share × (1 − 1/expected). A 1.5× on 60 % (25 %) beats 3× on 5 % (3 %).
+6. **Headroom**: end-to-end headroom = share × (1 − SOL). A big share already at its roofline has little
+   left to give; a low-SOL target is where real speed hides. The method is never prescribed — discover it.
    Re-rank after every keep — shares move.
 7. **Technique matrix**: `techniques[].status` (untried / accepted / rejected / crash). Untried first,
-   accepted can be iterated (tier up), rejected only with a *new* reason, crash after fixing the cause.
+   accepted can be iterated further, rejected only with a *new* reason, crash after fixing the cause.
 8. Cross-check with `top_kernels`: cuDNN/cuBLAS kernel names, `elementwise_kernel`, `copy_`/`cat` counts
    reveal what the module rows hide (e.g. dozens of `_to_copy` casts = dtype churn).

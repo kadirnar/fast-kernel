@@ -14,7 +14,7 @@ Campaign: `$ARGUMENTS` if a directory was given, else `uv run fast-kernel resolv
 
 ```bash
 uv run fast-kernel status --brief          # incumbent, speedup, threshold, loop state
-uv run fast-kernel ideas                    # untried target x technique pairs by Amdahl gain, tried ones marked
+uv run fast-kernel ideas                    # hotspots by measured headroom (share x (1 - SOL)), with what was tried
 uv run fast-kernel history -n 5             # what just happened and why
 ```
 Then read `PLAN.md` (regenerate with `uv run fast-kernel profile` if it predates the incumbent),
@@ -23,8 +23,8 @@ last experiment failed, `uv run fast-kernel show <N> --log`.
 
 ## 2. Choose one hypothesis
 
-Score = share × (1 − 1/expected), from `ideas`. Tie-breaks: untried > larger measured share >
-lower tier > lower risk > smaller diff. A focus given as `--target/--technique` wins unless it is
+Score = share × (1 − roofline efficiency), from `ideas`. Tie-breaks: untried > larger measured share >
+lower SOL > smaller diff. The technique itself is never prescribed — discover it from the measurements. A focus given as `--target/--technique` wins unless it is
 clearly exhausted. Write the hypothesis as one line before touching code:
 `"<what> for <target class> via <technique/backend>; expect ~<x>% end-to-end because <share/boundness>"`.
 

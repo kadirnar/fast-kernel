@@ -16,7 +16,7 @@ It discovers every campaign under `--root` (a directory with `GOAL.md` + `candid
 - **Speedup vs baseline** and **kernel launches** step charts of the incumbent.
 - **Where the time goes**: GPU-time share by target category for baseline vs the current incumbent,
   fixed categorical slots (7 + Other), legend + tooltips + the ranked-targets table as the table twin.
-- **Ranked targets**: rank, class, boundness, share, Amdahl gain, next untried technique.
+- **Ranked targets**: rank, class, boundness, share, roofline efficiency (SOL), measured headroom.
 - **Lineage**: SVG tree — trunk of keeps, discards/crashes hanging off their parent incumbent.
 - **Experiments table** (filterable) — the accessible twin of the chart; **Agents** (live state and
   last tool call from `fast-kernel auto` / workers / eval); **Insights** (KNOWLEDGE.md); **Event stream**.

@@ -7,8 +7,10 @@ last accepted one — until nothing measurable is left, and then you keep lookin
 is recorded and shown on a live graph (`fast-kernel dashboard`).
 
 Reference designs this program follows: karpathy/autoresearch (fixed evaluation, keep/revert, one
-editable file, never stop) and RightNow-AI/autokernel (profile → Amdahl-rank → five-stage correctness
-harness → six-tier playbook → results.tsv).
+editable file, never stop), RightNow-AI/autokernel (profile → rank → five-stage correctness harness →
+results.tsv) and the hardware-guided agent loops of KernelAgent / KernelSkill / AKG (roofline
+diagnosis, reflexion + repair memory, population search). Targets are ranked by *measured* headroom —
+share of GPU time × (1 − roofline efficiency) — never by a predicted speedup.
 
 ## Quality contract (binding)
 

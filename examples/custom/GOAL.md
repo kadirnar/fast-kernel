@@ -27,7 +27,7 @@ protected: [GOAL.md, spec.py, harness/**, .fast-kernel/**, experiments/**, resul
 
 Edit `spec.py` (`build_model`, and optionally the `Spec` class for custom workloads / comparisons), then
 `fast-kernel baseline`. Everything else is generic: gates compare candidate outputs to the fp32 reference
-with allclose; benchmarks use the fixed protocol; profiling ranks hotspots by Amdahl gain.
+with allclose; benchmarks use the fixed protocol; profiling ranks hotspots by measured headroom (share × (1 − roofline efficiency)).
 
 # Quality contract
 

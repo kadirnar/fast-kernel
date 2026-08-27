@@ -11,9 +11,10 @@ src/fastkernel/
   store.py           SQLite/WAL: experiments, events (SSE source), agents, leases, kv
   results.py         results.tsv ledger
   knowledge.py       KNOWLEDGE.md (auto experiment log + agent insights)
-  playbook.py        technique catalogue (tiers 0-6) with categories / boundness / backends / priors
+  playbook.py        technique catalogue (tiers 0-6), internal only — never rendered to the agent
+  memory.py          campaign memory: per-experiment reflexion, repair chains, failure classification
   models/            ModelSpec contract + built-ins (mimi, lfm25, lfm-audio, yolo, hf-causal-lm, torch module)
-  profiling/         trace (torch.profiler + module hooks + Python frames) -> classify (roofline) -> rank (Amdahl) -> plan
+  profiling/         trace (torch.profiler + module hooks + Python frames) -> classify (roofline) -> rank (measured headroom) -> plan
   harness/           gates (5 stages) -> bench (fixed protocol) -> run.py (subprocess) -> evaluate.py (keep/revert)
   backends/          probes + helpers: triton, tilelang, cute-dsl, cuda-cpp (nvcc discovery), torch.compile, cuda-graphs,
                      hub-kernels, toolchain (pip-wheel CUDA toolchains); templates/ starter kernels
@@ -51,7 +52,7 @@ everything winds down after the current experiment.
    `experiments/NNNN-slug/`, records `experiment.started`.
 2. `python -m fastkernel.harness.run` (subprocess): load spec -> reference model -> seeded inputs ->
    reference outputs (and noise floor on baseline) -> free reference -> `candidate.apply` -> gates ->
-   bench -> profile (+ Amdahl targets with the technique matrix from history) -> JSON files.
+   bench -> profile (+ targets ranked by measured headroom, with the matrix from history) -> JSON files.
 3. Decision + git + incumbent + results.tsv + KNOWLEDGE.md + events; PLAN.md regenerated on keep.
 4. The dashboard tails the events table over SSE and re-renders.
 
