@@ -208,14 +208,17 @@ def process_inbox(campaign: Campaign, *, quiet: bool = False) -> list[dict[str, 
 
 
 def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | None = None, max_turns: int = 80,
-             permission_mode: str = "acceptEdits", agents: int = 0, sleep_between: float = 2.0, worker_iterations: int | None = None) -> None:
-    """The endless loop. With agents > 0, spawn parallel worktree workers and promote their proposals."""
+             permission_mode: str = "acceptEdits", agents: int = 0, sleep_between: float = 2.0, worker_iterations: int | None = None,
+             islands: int = 1) -> None:
+    """The endless loop. With agents > 0, spawn parallel worktree workers and promote their proposals.
+    With islands > 1, the workers are partitioned so each island explores a different band of the ranked
+    targets (population diversity), while the keep/revert lineage still promotes the single global best."""
     from .worker import spawn_workers
     store = campaign.store
     campaign.set_flag("loop.active", f"auto pid={os.getpid()} started={now_iso()}")
     campaign.clear_flag("stop")
     workers = spawn_workers(campaign, agents, model=model, max_turns=max_turns, permission_mode=permission_mode,
-                            iterations=worker_iterations) if agents > 0 else []
+                            iterations=worker_iterations, islands=islands) if agents > 0 else []
     store.event("loop.started", mode="auto", agents=agents, iterations=iterations, model=model)
     done = 0
     no_keep = 0

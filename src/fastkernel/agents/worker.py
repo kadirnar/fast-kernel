@@ -54,10 +54,18 @@ def create_worktree(campaign: Campaign, name: str) -> Campaign:
     return wt
 
 
-def lease_target(campaign: Campaign, worker: str) -> dict[str, Any] | None:
+def lease_target(campaign: Campaign, worker: str, *, island: int = 0, islands: int = 1) -> dict[str, Any] | None:
     hotspots = read_json(campaign.hotspots_path, {}) or {}
+    targets = hotspots.get("targets") or []
     leased = {lease["target_id"] for lease in campaign.store.leases() if lease["state"] == "active" and lease["worker"] != worker}
-    for target in hotspots.get("targets") or []:
+    # Island model: partition the ranked targets into `islands` contiguous bands so islands explore
+    # different regions of the target space in parallel (diversity); fall back to any free target.
+    ordered = targets
+    if islands > 1 and targets:
+        size = max(1, (len(targets) + islands - 1) // islands)
+        band = targets[island * size:(island + 1) * size]
+        ordered = band + [t for t in targets if t not in band]
+    for target in ordered:
         if target["id"] in leased:
             continue
         if campaign.store.acquire_lease(target["id"], worker):
@@ -117,9 +125,15 @@ def run_worker(main: Campaign, name: str, *, iterations: int | None = None, mode
             for rel in ("PLAN.md", "hotspots.json", "KNOWLEDGE.md"):
                 if (main.root / rel).exists():
                     shutil.copy2(main.root / rel, wt.root / rel)
-            target = lease_target(main, name)
+            island = int(os.environ.get("FK_ISLAND", "0"))
+            islands = int(os.environ.get("FK_ISLANDS", "1"))
+            target = lease_target(main, name, island=island, islands=islands)
             before = wt.store.next_experiment_number()
-            prompt = iteration_prompt(wt.root, target=(target or {}).get("id"), worker=name, iteration=before)
+            memory_note = ""
+            if target:
+                from .. import memory as _memory
+                memory_note = _memory.render_memory(_memory.retrieve(main, target))
+            prompt = iteration_prompt(wt.root, target=(target or {}).get("id"), worker=name, iteration=before, memory_note=memory_note)
             run_iteration(wt, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode, agent_name=name)
             done += 1
             latest = wt.store.list_experiments(limit=1)
@@ -133,8 +147,9 @@ def run_worker(main: Campaign, name: str, *, iterations: int | None = None, mode
 
 
 def spawn_workers(campaign: Campaign, count: int, *, model: str | None, max_turns: int, permission_mode: str,
-                  iterations: int | None) -> list[subprocess.Popen]:
+                  iterations: int | None, islands: int = 1) -> list[subprocess.Popen]:
     procs = []
+    islands = max(1, min(islands, count))
     for i in range(count):
         name = f"w{i + 1}"
         argv = [sys.executable, "-m", "fastkernel.cli", "worker", "--name", name, "--max-turns", str(max_turns),
@@ -143,9 +158,11 @@ def spawn_workers(campaign: Campaign, count: int, *, model: str | None, max_turn
             argv += ["--model", model]
         if iterations:
             argv += ["--iterations", str(iterations)]
+        env = {**os.environ, "FK_ISLAND": str(i % islands), "FK_ISLANDS": str(islands)}
         log = (campaign.state_dir / f"worker-{name}.log").open("a", encoding="utf-8")
-        procs.append(subprocess.Popen(argv, cwd=str(campaign.root), stdout=log, stderr=subprocess.STDOUT, start_new_session=True))
-        campaign.store.event("worker.spawned", name=name, pid=procs[-1].pid)
+        procs.append(subprocess.Popen(argv, cwd=str(campaign.root), stdout=log, stderr=subprocess.STDOUT,
+                                      start_new_session=True, env=env))
+        campaign.store.event("worker.spawned", name=name, pid=procs[-1].pid, island=i % islands)
     return procs
 
 

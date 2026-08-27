@@ -84,7 +84,14 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
 
 ## Crash protocol
 
-1. `fast-kernel show <N> --log` (tail of run.log) — read the actual error.
+Every finished experiment is auto-classified into a **failure class** (compile, import, shape,
+illegal-memory, oom, timeout, numerical, determinism, edge, nan, …) shown by `fast-kernel show <N>`
+and stored in the campaign memory. Route by that class (adaptive error routing): an `import` class
+means install the package and retry; `shape` / `illegal-memory` means fix strides/bounds/`.contiguous()`;
+`numerical` / `determinism` means debug against the reference (`/numerical-verification`); `oom` /
+`timeout` means a smaller working set or a different algorithm. The class is a *diagnosis*, not a fix.
+
+1. `fast-kernel show <N> --log` (tail of run.log) — read the actual error and the failure class.
 2. Trivial (typo, import, shape/stride mismatch, missing `.contiguous()`) → fix and re-run once.
 3. Fundamental (OOM, compiler cannot build, wrong algorithm) → accept the revert, log the reason
    with `fast-kernel note`, try a different technique or backend.
@@ -136,12 +143,20 @@ One agent can run the whole loop. For parallelism or focus, delegate to the proj
 failures), `fk-benchmarker` (noise, protocol questions), `fk-reviewer` (reads the diff before eval:
 simplicity, API, hidden CPU syncs), `fk-librarian` (docs, prior experiments, templates). Parallel
 workers on git worktrees: `fast-kernel auto --agents N` (proposals are re-measured on the incumbent).
+Add `--islands K` to split the workers into K populations, each exploring a different band of the ranked
+targets so the search does not collapse onto one hotspot (an island model). `fast-kernel beam` shows the
+top-k accepted candidates — the search population, not just the single incumbent; use it to see whether
+the campaign has diverse strong points to build on or has narrowed to one lineage.
 
 ## Logging
 
 - `results.tsv` — one line per experiment (exp, commit, status, metric, value, speedup, VRAM, gates, description).
 - `experiments/NNNN-slug/` — metrics.json, gates.json, profile.json, run.log, patch.diff, notes.md.
 - `KNOWLEDGE.md` — auto experiment log + your insights (`fast-kernel note`). Read it every iteration.
+- `.fast-kernel/memory.jsonl` — one structured **reflexion** per experiment (target, techniques, measured
+  delta, verdict, failure class). Query it with `fast-kernel memory --target <id>`: it returns the measured
+  outcomes of similar targets (what worked) and the *repair chain* (failures already seen — do not repeat).
+  This is measured history, not advice; the technique you try next is still yours to choose.
 - The dashboard (`fast-kernel dashboard`) and `fast-kernel report` (static HTML) show all of it.
 
 ## Never stop

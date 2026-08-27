@@ -185,6 +185,17 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
     else:
         record["commit"] = campaign.head()
 
+    # ---- campaign memory: structured reflexion + measured outcome (KernelAgent reflexion, KernelSkill
+    # dual memory, and the failure class that drives adaptive error routing) --------------------------
+    from .. import memory as _memory
+    record["_target_obj"] = next((t for t in (prof.get("targets") or []) if t.get("id") == record.get("target")), None)
+    refl = _memory.reflexion(record, incumbent_value=incumbent.value, minimize=goal.minimize, gates=gates, run_log=result.stdout)
+    record.pop("_target_obj", None)
+    record["reflexion"] = refl
+    record["failure_class"] = refl.get("failure_class")
+    if not baseline:
+        _memory.record_outcome(campaign, refl)
+
     record["finished_at"] = now_iso()
     store.save_experiment(record)
     store.event("experiment.finished", number=number, status=status, reason=reason, value=value,
@@ -263,6 +274,13 @@ def render_verdict(campaign: Campaign, record: dict[str, Any], gates: dict[str, 
         sol = top.get("sol_efficiency")
         sol_str = f", roofline {sol * 100:.0f}% ({(1 - sol) * 100:.0f}% headroom)" if sol is not None else ""
         lines.append(f"   biggest remaining hotspot: {top.get('title')} ({top.get('id')}) share {fmt((top.get('fraction') or 0) * 100, 3)}% of GPU time{sol_str}")
+    refl = record.get("reflexion") or {}
+    if record.get("failure_class"):
+        from .. import memory as _memory
+        diag = _memory.classify_failure(log, record.get("gates"))
+        lines.append(f"   failure class: {record['failure_class']} -- {diag.get('detail', '')}")
+    if refl.get("outcome"):
+        lines.append(f"   reflexion: {refl['outcome']}")
     if record["status"] in ("crash", "error"):
         lines.append("   --- log tail ---")
         lines.extend("   " + line for line in tail_text(log, 25).splitlines())
