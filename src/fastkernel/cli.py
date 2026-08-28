@@ -178,7 +178,7 @@ def cmd_eval(args) -> None:
                             warmup=args.warmup, workloads=args.workloads.split(",") if args.workloads else None)
     if record is None:
         sys.exit(1)
-    sys.exit(0 if record["status"] in ("keep", "baseline") else 3)
+    sys.exit(0 if record["status"] in ("keep", "baseline", "bank", "remeasure") else 3)
 
 
 def cmd_status(args) -> None:
@@ -193,9 +193,21 @@ def cmd_status(args) -> None:
     print(f"campaign {summary['name']} ({summary['model']}) -- {summary['objective'][:90]}")
     print(f"  experiments: {summary['experiments']} {summary['counts']} | loop: {'ACTIVE' if summary['loop_active'] else 'off'}"
           f"{' | PAUSED' if summary['paused'] else ''} | branch {summary['branch']} @ {summary['head']}")
+    if inc.get("anchor_ratio"):
+        # anchored: the threshold is this measurement's own uncertainty, not the baseline's noise floor
+        unc = inc.get("anchor_uncertainty") or 0.0
+        threshold = max(summary["min_improvement"], unc * (2 ** 0.5))
+        measure = (f"anchor {fmt(inc['anchor_ratio'], 4)}x vs reference +/- {fmt(unc * 100, 2)}%, "
+                   f"threshold ~{fmt(threshold * 100, 2)}%")
+    else:
+        threshold = max(summary["min_improvement"], inc.get("noise_floor") or 0)
+        measure = (f"no anchor yet (run `fast-kernel eval --force` on a clean tree to measure one), "
+                   f"threshold {fmt(threshold * 100, 3)}%")
     print(f"  incumbent: #{inc.get('number')} {summary['target_metric']}={fmt(inc.get('value'))} "
-          f"(baseline {fmt(summary.get('baseline_value'))}, speedup {fmt(summary.get('speedup_vs_baseline'), 3)}x, noise floor "
-          f"{fmt((inc.get('noise_floor') or 0) * 100, 3)}%, threshold {fmt(max(summary['min_improvement'], inc.get('noise_floor') or 0) * 100, 3)}%)")
+          f"(baseline {fmt(summary.get('baseline_value'))}, speedup {fmt(summary.get('speedup_vs_baseline'), 3)}x, {measure})")
+    if inc.get("banked"):
+        print(f"  banked: {inc['banked']} improvement(s) committed in candidate/ but too small to promote yet; "
+              f"the next experiment builds on them and promotes the pile once it clears the threshold")
     if last:
         print(f"  last: #{last['number']} [{last['status']}] {last.get('description', '')[:80]} -> {last.get('reason', '')[:100]}")
     beam = campaign.beam(3)

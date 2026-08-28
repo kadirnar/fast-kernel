@@ -10,6 +10,7 @@ import glob
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,74 @@ def build_dir(campaign_root: Path | None = None) -> Path:
     return path
 
 
+def _own_process_tree() -> set[int]:
+    """This process and its ancestors -- `uv run ... harness.run --campaign <root>` and the shell
+    that started it carry the same words on their command lines, so they must not be mistaken for a
+    competing build."""
+    pids: set[int] = set()
+    pid = os.getpid()
+    for _ in range(24):
+        if pid <= 0 or pid in pids:
+            break
+        pids.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat", "rb") as fh:
+                # ppid is field 4, but the comm field may itself contain spaces or parentheses
+                pid = int(fh.read().decode("utf-8", "replace").rpartition(")")[2].split()[1])
+        except (OSError, IndexError, ValueError):
+            break
+    return pids
+
+
+def _live_build_elsewhere(campaign: str, mine: set[int]) -> bool:
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return True          # cannot tell; assume someone is building and leave the lock alone
+    for entry in entries:
+        if not entry.isdigit() or int(entry) in mine:
+            continue
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as fh:
+                cmdline = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if campaign in cmdline and "harness.run" in cmdline:
+            return True
+    return False
+
+
+def _clear_stale_lock(build: Path, wait_seconds: float = 240.0) -> str | None:
+    """Wait out, then break, a `lock` left behind by a build that was killed.
+
+    torch's JIT compiler guards each build directory with a `lock` file and waits on it *forever*.
+    Nothing removes it when the compiling process dies -- a timeout, a Ctrl-C, an OOM kill -- so
+    every later run blocks silently and indefinitely inside `candidate.apply`: no CPU load, no GPU
+    load, no error, no log line. It is indistinguishable from a hung kernel and costs an agent its
+    whole session.
+
+    Two safeguards, because process detection alone is not trustworthy: a real concurrent build is
+    given `wait_seconds` to finish, and after that the lock is broken regardless. Breaking it is
+    safe enough -- ninja rebuilds what is missing -- and far better than hanging forever.
+    """
+    lock = build / "lock"
+    if not lock.exists():
+        return None
+    campaign = str(build.parents[2].resolve())     # <campaign>/.fast-kernel/build/<name>
+    mine = _own_process_tree()
+    deadline = time.time() + wait_seconds
+    waited = False
+    while lock.exists() and _live_build_elsewhere(campaign, mine) and time.time() < deadline:
+        waited = True
+        time.sleep(2.0)
+    if not lock.exists():
+        return "waited for another build of this campaign to finish" if waited else None
+    age = time.time() - lock.stat().st_mtime
+    lock.unlink(missing_ok=True)
+    return (f"broke a stale build lock in {build.name} ({age / 60:.0f} min old): a previous run was killed "
+            f"mid-compile and torch would have waited on it forever")
+
+
 def load_cuda_inline(name: str, cuda_src: str, cpp_src: str, functions: list[str], campaign_root: Path | None = None,
                      extra_cuda_cflags: list[str] | None = None, verbose: bool = False):
     """Compile CUDA C++ once (cached by torch on source hash) and return the extension module."""
@@ -120,6 +189,9 @@ def load_cuda_inline(name: str, cuda_src: str, cpp_src: str, functions: list[str
     from torch.utils.cpp_extension import load_inline
     build = build_dir(campaign_root) / name
     build.mkdir(parents=True, exist_ok=True)
+    stale = _clear_stale_lock(build)
+    if stale:
+        print(f"[fast-kernel] {stale}", flush=True)
     return load_inline(
         name=name, cpp_sources=[cpp_src], cuda_sources=[cuda_src], functions=functions,
         # No forced --use_fast_math: the strict quality contract needs exact rsqrt/div/fmad and no

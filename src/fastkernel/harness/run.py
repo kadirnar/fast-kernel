@@ -23,7 +23,7 @@ from ..models.spec import CandidateContext, candidate_report, load_spec
 from ..profiling.rank import build_targets
 from ..profiling.trace import profile_workload
 from ..util import read_json, write_json
-from .bench import peak_memory_mb, reset_peak_memory, time_callable
+from .bench import auto_inner, compare_callables, peak_memory_mb, reset_peak_memory, self_noise, time_callable
 from .gates import run_gates
 
 SEED = 20260826
@@ -126,19 +126,38 @@ def main(argv: list[str] | None = None) -> int:
         reference_outputs = {w.name: _run_workload(reference, w, inputs[w.name]) for w in workloads}
         edge_reference = {w.name: _run_workload(reference, w, edge_inputs[w.name]) for w in edge_workloads}
         ref_bench: dict[str, Any] = {}
+        ref_fn = lambda m=reference: primary.run(m, inputs[primary.name])  # noqa: E731
+        bench_inner = 1
         if args.noise_check and not args.no_bench:
-            log("reference timing (noise estimate)")
-            fn = lambda m=reference: primary.run(m, inputs[primary.name])  # noqa: E731
-            a = time_callable(fn, warmup=args.warmup or goal.bench.warmup, repeats=args.repeats or goal.bench.repeats,
-                              ramp_seconds=goal.bench.ramp_seconds)
-            b = time_callable(fn, warmup=2, repeats=args.repeats or goal.bench.repeats, ramp_seconds=0.2)
-            noise = abs(a["median_ms"] - b["median_ms"]) / ((a["median_ms"] + b["median_ms"]) / 2)
-            ref_bench = {"median_ms_a": a["median_ms"], "median_ms_b": b["median_ms"], "noise": noise}
-            log(f"reference {a['median_ms']:.4f} / {b['median_ms']:.4f} ms -> noise {noise * 100:.2f}%")
-        spec.free(reference)
-        if getattr(spec, "reference_model", None) is not None:
-            spec.reference_model = None
-        del reference
+            bench_inner = auto_inner(ref_fn)
+            log(f"timing {bench_inner} call(s) per sample (keeps CPU wake-up jitter below the signal)")
+            # The noise floor is what the harness reports when nothing changed: the reference is
+            # compared against *itself*, interleaved, under identical conditions. The old estimate
+            # compared a fully warmed run against a barely warmed one and charged the warm-up
+            # difference to noise, which inflated the acceptance threshold for the whole campaign.
+            log("noise floor (reference vs itself, interleaved)")
+            n = self_noise(ref_fn, warmup=args.warmup or goal.bench.warmup, pairs=goal.bench.anchor_pairs,
+                           ramp_seconds=goal.bench.ramp_seconds, inner=bench_inner)
+            ref_bench = {"median_ms": n["a_median_ms"], "noise": n["noise"], "bias": n["bias"],
+                         "uncertainty": n["ratio_uncertainty"], "pairs": n["pairs"], "inner": bench_inner}
+            log(f"reference {n['a_median_ms']:.4f} ms -> noise floor {n['noise'] * 100:.2f}% "
+                f"(residual bias {n['bias'] * 100:.2f}%, median uncertainty {n['ratio_uncertainty'] * 100:.2f}%)")
+        # Anchoring needs the reference again after the gates, but it must NOT sit in VRAM while the
+        # candidate is built: a candidate that captures CUDA graphs has to meet the same allocator
+        # state it would meet in production, and holding a second model resident changes that (and
+        # inflates peak VRAM). So park it on the host and bring it back for the comparison only.
+        anchor_model = None
+        if goal.bench.anchor and not args.no_bench and hasattr(reference, "to"):
+            anchor_model = reference.to("cpu")
+            log("reference parked on the host; it returns to the device for the anchored comparison")
+        elif goal.bench.anchor and not args.no_bench:
+            log("anchoring skipped: this spec's reference cannot be moved off the device")
+        del ref_fn   # binds the model as a default argument and would pin it to the device
+        if anchor_model is None:
+            spec.free(reference)
+            if getattr(spec, "reference_model", None) is not None:
+                spec.reference_model = None
+            del reference
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
@@ -181,6 +200,37 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- benchmark ----------------------------------------------------------------------
     metrics: dict[str, Any] = {"workloads": {}, "primary": primary.name, "reference": ref_bench}
+
+    # ---- anchored comparison (decides keep/revert) ---------------------------------------
+    # Absolute milliseconds are not comparable across sessions; this ratio is. Both models run in
+    # this process, interleaved, alternating order, so clock/thermal drift cancels.
+    if anchor_model is not None and gates["passed"]:
+        try:
+            log("anchored comparison: reference vs candidate, interleaved")
+            anchor_model = anchor_model.to(device)   # back from the host, after the candidate is built
+            ref_fn = lambda m=anchor_model: primary.run(m, inputs[primary.name])  # noqa: E731
+            cand_fn = lambda: primary.run(candidate, inputs[primary.name])        # noqa: E731
+            cmp = compare_callables(ref_fn, cand_fn, warmup=args.warmup or goal.bench.warmup,
+                                    pairs=goal.bench.anchor_pairs, ramp_seconds=goal.bench.ramp_seconds)
+            metrics["anchor"] = {k: v for k, v in cmp.items() if k != "ratios"}
+            log(f"anchor: reference {cmp['a_median_ms']:.4f} ms vs candidate {cmp['b_median_ms']:.4f} ms "
+                f"-> {cmp['ratio']:.4f}x +/- {cmp['ratio_uncertainty'] * 100:.2f}% over {cmp['pairs']} pairs "
+                f"({cmp['inner_a']}/{cmp['inner_b']} calls per sample)")
+            del ref_fn, cand_fn
+        except Exception:  # noqa: BLE001
+            metrics["anchor_error"] = traceback.format_exc()
+            log("ANCHOR FAILED (falling back to cross-session millisecond comparison)\n" + traceback.format_exc()[-600:])
+    if anchor_model is not None:
+        # freed before the absolute benchmark, so peak VRAM stays a property of the candidate alone
+        spec.free(anchor_model)
+        if getattr(spec, "reference_model", None) is not None:
+            spec.reference_model = None
+        anchor_model = None
+        del reference
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
     if not args.no_bench:
         try:
             for w in workloads:

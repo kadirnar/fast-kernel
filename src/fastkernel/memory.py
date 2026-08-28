@@ -96,6 +96,10 @@ def reflexion(record: dict[str, Any], *, incumbent_value: float | None, minimize
         failure = classify_failure(run_log, gates)
     if status == "keep":
         outcome = f"kept: improved {delta_pct:+.2f}%" if delta_pct is not None else "kept"
+    elif status == "bank":
+        # a real gain, kept in the tree, but too small for this machine to resolve on its own
+        outcome = (f"banked: improved {delta_pct:+.2f}%, under the {record.get('threshold', 0) * 100:.2f}% floor"
+                   if delta_pct is not None else "banked (real but below the noise floor)")
     elif status == "discard" and failure is None:
         outcome = (f"no gain ({delta_pct:+.2f}% vs {record.get('threshold', 0) * 100:.2f}% threshold)"
                    if delta_pct is not None else "discarded (below threshold)")

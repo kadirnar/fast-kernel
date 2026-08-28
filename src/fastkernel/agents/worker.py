@@ -137,7 +137,7 @@ def run_worker(main: Campaign, name: str, *, iterations: int | None = None, mode
             run_iteration(wt, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode, agent_name=name)
             done += 1
             latest = wt.store.list_experiments(limit=1)
-            if latest and latest[0].get("number", -1) >= before and latest[0].get("status") == "keep":
+            if latest and latest[0].get("number", -1) >= before and latest[0].get("status") in ("keep", "bank"):
                 submit_proposal(main, wt, latest[0], name)
                 main.store.set_agent(name, "running", f"proposal submitted from #{latest[0]['number']}")
             if target:

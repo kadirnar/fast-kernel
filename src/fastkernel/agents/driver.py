@@ -254,10 +254,10 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
             summary = run_iteration(campaign, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode)
             experiments = store.list_experiments()
             last = experiments[-1] if experiments else {}
-            if last.get("number", -1) >= before and last.get("status") == "keep":
-                no_keep = 0
-            elif last.get("number", -1) >= before:
-                no_keep += 1   # an experiment ran but was not accepted
+            if last.get("number", -1) >= before and last.get("status") in ("keep", "bank"):
+                no_keep = 0    # a bank is a measured improvement too, just too small to promote yet
+            elif last.get("number", -1) >= before and last.get("status") != "remeasure":
+                no_keep += 1   # an experiment ran but was not accepted (a re-measurement is neither)
             if summary.get("error") or (summary.get("is_error") and summary.get("subtype") != "error_max_turns"):
                 print(f"iteration problem: {summary.get('error') or summary.get('result', '')[:300]}")
                 time.sleep(10.0)
