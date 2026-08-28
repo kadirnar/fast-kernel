@@ -54,6 +54,17 @@ Read the verdict: gates (which stage/check failed, value vs threshold), metric v
 threshold, kernel count, GPU busy, next target. Crash with a trivial cause (typo, import, stride,
 `.contiguous()`, meta tensor) → fix and rerun once. Anything else → accept the revert.
 
+The verdict line also names the **decision basis**. `anchored ratio vs the reference model` means the
+candidate and the reference were timed interleaved in one process, so the comparison is free of
+session-to-session drift and the threshold is that measurement's own uncertainty (typically well
+under 1 %). `raw milliseconds` means no anchor was available and the threshold falls back to the
+baseline noise floor — one `fast-kernel eval --force` on a clean tree fixes that for good.
+
+**bank** = the gain was real but below the resolution limit. The harness committed it and left it in
+`candidate/`; build the next experiment on top of it rather than reverting or re-testing it. The
+incumbent deliberately does not move, so the accumulated tree is compared against the last number
+the campaign can defend, and is promoted in one keep when the pile clears the threshold.
+
 ## 5. Learn and stop
 
 ```bash

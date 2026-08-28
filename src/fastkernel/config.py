@@ -17,6 +17,16 @@ class BenchPolicy:
     ramp_seconds: float = 1.0
     timeout_seconds: float = 900.0
     profile_every_experiment: bool = True
+    # Accept/reject is decided on a paired, same-process comparison against the reference model
+    # (see harness/bench.compare_callables): absolute milliseconds drift between sessions, the
+    # ratio does not. Set anchor=false to fall back to comparing raw milliseconds across runs.
+    anchor: bool = True
+    anchor_pairs: int = 20
+    # A measured improvement that is real but smaller than the noise floor used to be thrown away.
+    # Instead it is *banked*: the candidate tree is left in place so the next experiment builds on
+    # it, and the incumbent only moves once the accumulated tree clears the floor. At most this
+    # many banks may accumulate before the next experiment has to settle the question.
+    max_banked: int = 8
 
 
 @dataclass

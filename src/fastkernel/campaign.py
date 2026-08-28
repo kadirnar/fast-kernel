@@ -54,6 +54,9 @@ class Incumbent:
     metrics: dict[str, Any] = field(default_factory=dict)
     noise_floor: float = 0.0
     updated_at: str = ""
+    anchor_ratio: float | None = None   # reference_ms / incumbent_ms, measured interleaved in one process
+    anchor_uncertainty: float = 0.0     # relative ~95 % half-width of that ratio
+    banked: int = 0                     # committed improvements too small to promote the incumbent yet
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()

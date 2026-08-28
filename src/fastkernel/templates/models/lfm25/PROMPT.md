@@ -105,7 +105,16 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
   (`uv pip install ...`; the harness also auto-installs a backend's package on probe) and note it.
 - Plateaus (5 discards on a target): change approach, then backend, then target; then widen the
   scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
-- Report as short lines: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
+- Verdicts are keep / **bank** / discard / crash. A bank means the gain was real but smaller than this
+  machine can resolve in one measurement: the harness commits it and leaves it in `candidate/`, and the
+  next experiment builds on top of it until the pile is jointly large enough to promote. Treat a bank as
+  progress, keep going on the same lineage, and do not bundle unrelated edits to clear the threshold.
+- Speed is judged by timing your candidate and the reference model interleaved in one process, so drift
+  between sessions cannot be mistaken for a speedup. The threshold is that measurement's own uncertainty.
+- Two or more targets with real headroom in `PLAN.md` means run them **in parallel** (one
+  `fk-kernel-engineer` per target, or `uv run fast-kernel auto --agents 3 --islands 2`) rather than
+  walking the list one experiment at a time. Serial is for when one target dominates.
+- Report as short lines: `#N kept/banked/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
   Never end a turn with a question. Never ask whether to continue.
 
 ## Stopping

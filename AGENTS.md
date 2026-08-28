@@ -43,9 +43,11 @@ learn (KNOWLEDGE.md, results.tsv)  ←  keep / revert (harness decides)  ←  fa
 3. Implement it under `candidate/` only (`candidate/__init__.py: apply(model, ctx)`, kernels in
    `candidate/kernels/`). Copy starters from `fast-kernel templates` when useful.
 4. `fast-kernel eval -m "<one-line hypothesis>" --technique <ids> --target <id>`.
-   The harness runs the five gates (smoke, shapes, numerical, determinism, edge), the fixed benchmark,
-   a profile, and decides: **keep** (commit, tag, promote incumbent) or **discard/crash** (candidate/ is
-   reset to the incumbent; the patch is kept under `experiments/`).
+   The harness runs the five gates (smoke, shapes, numerical, determinism, edge), the fixed benchmark
+   plus an interleaved comparison against the reference model, a profile, and decides: **keep**
+   (commit, tag, promote incumbent), **bank** (a real gain too small to resolve on its own: committed
+   and left in `candidate/` for the next experiment to build on) or **discard/crash** (candidate/ is
+   reset; the patch is kept under `experiments/`).
 5. Record what you learned: `fast-kernel note "<insight with numbers>" --tags <technique,target>`.
 6. Go to 1. Do not stop. Do not ask whether to continue.
 
@@ -78,11 +80,30 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
 
 ## Decision logic (owned by the harness)
 
-- crash → revert · gates FAIL → revert · improvement ≥ max(`min_improvement`, measured noise floor) → keep
+- crash → revert · gates FAIL → revert · improvement ≥ max(`min_improvement`, measurement
+  uncertainty) → **keep** (commit, tag, promote incumbent).
+- improvement > 0 but below that threshold → **bank**: the harness commits your work and leaves it
+  in `candidate/`, but does not move the incumbent. The next experiment builds on top of it, and
+  the accumulated tree is promoted as one keep as soon as the pile is jointly large enough to
+  measure. A bank is a success, not a rejection — a 0.4 % win that used to be discarded is now
+  kept. Up to `bench.max_banked` (default 8) may pile up before the harness stops banking.
 - equal or slightly worse but **simpler** (fewer lines, fewer kernels) → `--simpler` keeps it
   (autoresearch's simplicity rule: deleting code at equal speed is a win).
+- **How "improvement" is measured.** Absolute milliseconds are not comparable between sessions:
+  clocks, thermals and whatever else touches the GPU drift, and a raw comparison charges that drift
+  to your candidate. So every experiment times the candidate **and the unmodified reference model
+  interleaved, in one process** (`metrics.anchor`), and the decision uses the ratio of ratios. The
+  threshold is that measurement's own uncertainty, recomputed per experiment — not a number frozen
+  at baseline. `fast-kernel show <N>` prints which basis was used.
+- Because of this, **do not chase the threshold by bundling unrelated edits**. One hypothesis per
+  experiment stays correct: small wins accumulate through banking, not by hiding several ideas in
+  one diff where you cannot tell which one paid.
 - Metrics that matter: the primary workload's median latency (`latency_ms`), plus rtf / tokens/s /
   fps, kernel launches per call, GPU-busy ratio, peak VRAM. Speedup is always vs experiment #0.
+- A campaign that predates anchoring has no reference ratio for its incumbent. One
+  `fast-kernel eval --force` with an unchanged tree re-measures the incumbent, records its anchor
+  and counts as neither progress nor failure; every experiment after that gets the precise
+  comparison.
 
 ## Crash protocol
 
@@ -140,7 +161,14 @@ this automatically on probe) or use `fast-kernel toolchain install`, then contin
 
 ## Roles (multi-agent)
 
-One agent can run the whole loop. For parallelism or focus, delegate to the project subagents:
+One agent *can* run the whole loop, but a serial loop is usually the wrong choice: experiments on
+different targets are independent, each one costs minutes of build + gates + benchmark, and the
+ranking only changes when something is accepted. **Once `PLAN.md` lists two or more targets with
+real headroom, run them in parallel** — `fast-kernel auto --agents 3 --islands 2`, or delegate one
+`fk-kernel-engineer` per target — instead of walking the list one experiment at a time. Reserve the
+serial loop for when a single target dominates or the next step depends on the last result.
+
+Delegate to the project subagents:
 `fk-profiler` (hotspot analysis), `fk-kernel-engineer` (writes kernels), `fk-verifier` (debugs gate
 failures), `fk-benchmarker` (noise, protocol questions), `fk-reviewer` (reads the diff before eval:
 simplicity, API, hidden CPU syncs), `fk-librarian` (docs, prior experiments, templates). Parallel

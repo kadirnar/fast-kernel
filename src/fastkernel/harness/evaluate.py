@@ -2,13 +2,21 @@
 
     record = run_experiment(campaign, "fuse RMSNorm into QKV projection", techniques=["fused-norm"], target="t_ab12")
 
-Decision order (strict): crash -> revert; gates FAIL -> revert; primary metric improved by at least
-max(min_improvement, measured noise floor) -> keep (commit, tag exp-N, promote incumbent); equal or worse
--> revert unless `simpler=True` and the loss is within the threshold (autoresearch's simplicity rule).
+Decision order (strict): crash -> revert; gates FAIL -> revert; improved by at least
+max(min_improvement, measurement uncertainty) -> keep (commit, tag exp-N, promote incumbent);
+improved but by less than that -> **bank** (commit, leave in candidate/, do not move the incumbent),
+so small real wins accumulate until they are jointly large enough to measure instead of being thrown
+away one at a time; equal or worse -> revert unless `simpler=True` and the loss is within the
+threshold (autoresearch's simplicity rule).
+
+"Improved" is measured by the anchored ratio when one is available: the candidate and the reference
+model are timed interleaved in the same process, so drift between sessions cancels instead of being
+charged to the candidate. See harness/bench.compare_callables.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -35,6 +43,58 @@ def _improvement(minimize: bool, incumbent: float | None, value: float | None) -
     if incumbent is None or value is None or incumbent == 0:
         return None
     return (incumbent - value) / incumbent if minimize else (value - incumbent) / incumbent
+
+
+def decide_improvement(goal, incumbent, metrics: dict[str, Any], value: float | None, *,
+                       simpler: bool = False) -> dict[str, Any]:
+    """How much faster is this candidate, is that measurable, and what should happen to it?
+
+    Pure: no git, no files, no side effects -- the whole accept/bank/reject rule in one place.
+
+    Two things decide it. First, *what is compared*: when both the candidate and the incumbent were
+    timed against the same reference model interleaved in their own process (`metrics["anchor"]`),
+    the ratio of those two ratios is used. Drift between sessions -- clocks, thermals, another
+    process on the GPU -- moves a raw millisecond count but cancels out of the ratio, so it is no
+    longer charged to the candidate. Second, *what counts as measurable*: the threshold is the
+    combined uncertainty of the two ratio measurements, not a number frozen at baseline.
+
+    A gain that is real but below that threshold is banked rather than discarded, so a campaign can
+    accumulate several small wins and promote them together once they are jointly measurable.
+    """
+    anchor = metrics.get("anchor") or {}
+    anchor_ratio = anchor.get("ratio")
+    anchor_unc = float(anchor.get("ratio_uncertainty") or 0.0)
+    improvement = _improvement(goal.minimize, incumbent.value, value)
+    threshold = max(goal.min_improvement, incumbent.noise_floor or 0.0)
+    basis = "raw milliseconds vs the incumbent's stored value"
+    if anchor_ratio and incumbent.anchor_ratio:
+        improvement = anchor_ratio / incumbent.anchor_ratio - 1.0
+        # two independent ratio measurements, so their uncertainties add in quadrature
+        threshold = max(goal.min_improvement, math.hypot(anchor_unc, incumbent.anchor_uncertainty))
+        basis = "anchored ratio vs the reference model"
+    out: dict[str, Any] = {"anchor_ratio": anchor_ratio, "anchor_uncertainty": anchor_unc,
+                           "improvement": improvement, "threshold": threshold, "decision_basis": basis}
+    if improvement is not None and improvement >= threshold:
+        out["status"] = "keep"
+        out["reason"] = f"improved {improvement * 100:+.2f}% (threshold {threshold * 100:.2f}%, {basis})"
+    elif simpler and improvement is not None and improvement >= -threshold:
+        out["status"] = "keep"
+        out["reason"] = f"kept as simpler code within noise ({improvement * 100:+.2f}%)"
+    elif improvement is not None and improvement > 0 and incumbent.banked < goal.bench.max_banked:
+        # Real, gate-clean, but smaller than this machine can resolve in one measurement.
+        # Discarding it loses it for good; instead it is committed and the next experiment builds
+        # on top of it. The incumbent -- the number the campaign defends -- only moves once the
+        # accumulated tree clears the floor in a single measurement, so banking never claims a
+        # speedup that was not measured.
+        out["status"] = "bank"
+        out["reason"] = (f"banked {improvement * 100:+.2f}%: real but under the {threshold * 100:.2f}% floor; "
+                         f"kept in candidate/ for the next experiment to build on "
+                         f"({incumbent.banked + 1}/{goal.bench.max_banked})")
+    else:
+        out["status"] = "discard"
+        out["reason"] = (f"no improvement: {improvement * 100:+.2f}% vs threshold {threshold * 100:.2f}%"
+                         if improvement is not None else "could not compare to incumbent")
+    return out
 
 
 def run_experiment(campaign: Campaign, description: str, *, baseline: bool = False, techniques: list[str] | None = None,
@@ -135,19 +195,21 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
         status, reason = "crash", f"target metric '{goal.target_metric}' missing from metrics"
     elif baseline:
         status, reason = "baseline", "baseline recorded"
+    elif not diff.strip():
+        # `--force` on an unchanged tree: this is a re-measurement of the incumbent itself, not a
+        # proposal. Nothing to keep or revert -- but it does tell us the incumbent's own anchor
+        # ratio, which is how a campaign that started before anchoring existed acquires one.
+        status = "remeasure"
+        anchor = metrics.get("anchor") or {}
+        record["anchor_ratio"] = anchor.get("ratio")
+        record["anchor_uncertainty"] = float(anchor.get("ratio_uncertainty") or 0.0)
+        reason = (f"re-measured the incumbent: {value if value is None else f'{value:.4f}'} "
+                  f"{goal.target_metric}" + (f", anchor {record['anchor_ratio']:.4f}x vs the reference"
+                                             if record.get("anchor_ratio") else ""))
     else:
-        improvement = _improvement(goal.minimize, incumbent.value, value)
-        threshold = max(goal.min_improvement, incumbent.noise_floor or 0.0)
-        record["improvement"] = improvement
-        record["threshold"] = threshold
-        if improvement is not None and improvement >= threshold:
-            status, reason = "keep", f"improved {improvement * 100:+.2f}% (threshold {threshold * 100:.2f}%)"
-        elif simpler and improvement is not None and improvement >= -threshold:
-            status, reason = "keep", f"kept as simpler code within noise ({improvement * 100:+.2f}%)"
-        else:
-            status = "discard"
-            reason = (f"no improvement: {improvement * 100:+.2f}% vs threshold {threshold * 100:.2f}%"
-                      if improvement is not None else "could not compare to incumbent")
+        verdict = decide_improvement(goal, incumbent, metrics, value, simpler=simpler)
+        status, reason = verdict.pop("status"), verdict.pop("reason")
+        record.update(verdict)
     record["status"] = status
     record["reason"] = reason
 
@@ -168,7 +230,9 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
             ref = metrics.get("reference") or {}
             noise = float(ref.get("noise") or 0.0)
             record["noise_floor"] = noise
-        campaign.save_incumbent(Incumbent(number=number, commit=commit, value=value, metrics=record["metrics"], noise_floor=noise))
+        campaign.save_incumbent(Incumbent(number=number, commit=commit, value=value, metrics=record["metrics"],
+                                          noise_floor=noise, anchor_ratio=record.get("anchor_ratio"),
+                                          anchor_uncertainty=record.get("anchor_uncertainty") or 0.0, banked=0))
         store.event("incumbent.promoted", number=number, commit=commit, value=value, speedup_vs_baseline=record.get("speedup_vs_baseline"))
         if prof.get("targets"):
             try:
@@ -179,6 +243,24 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
             caps = read_json(campaign.capabilities_path, {}) or {}
             write_plan(campaign.root, profile=prof, targets=prof["targets"], device=caps.get("device_info", {}),
                        workload=prof.get("workload", ""), experiment=number, spec_notes=spec_notes, backends=caps.get("backends"))
+    elif status == "remeasure":
+        record["commit"] = campaign.head()
+        if record.get("anchor_ratio"):
+            campaign.save_incumbent(Incumbent(number=incumbent.number, commit=incumbent.commit, value=incumbent.value,
+                                              metrics=incumbent.metrics, noise_floor=incumbent.noise_floor,
+                                              anchor_ratio=record["anchor_ratio"],
+                                              anchor_uncertainty=record.get("anchor_uncertainty") or 0.0,
+                                              banked=incumbent.banked))
+    elif status == "bank":
+        # Committed, so that a later discard's `git checkout -- candidate` restores the banked work
+        # instead of silently deleting it. The incumbent (value, ratio) deliberately stays put: the
+        # next experiment is still measured against the last number the campaign can defend.
+        record["commit"] = campaign.commit_candidate(f"exp {number} (banked): {record['description'][:60]}")
+        campaign.save_incumbent(Incumbent(number=incumbent.number, commit=incumbent.commit, value=incumbent.value,
+                                          metrics=incumbent.metrics, noise_floor=incumbent.noise_floor,
+                                          anchor_ratio=incumbent.anchor_ratio,
+                                          anchor_uncertainty=incumbent.anchor_uncertainty,
+                                          banked=incumbent.banked + 1))
     elif status in ("discard", "crash"):
         record["commit"] = campaign.head()
         campaign.restore_candidate()
@@ -266,6 +348,10 @@ def render_verdict(campaign: Campaign, record: dict[str, Any], gates: dict[str, 
     value = record.get("primary_value")
     extra = "".join(f", {k}={fmt(record[k])}" for k in ("rtf", "tokens_per_s", "fps") if record.get(k))
     lines.append(f"   {goal.target_metric}: {fmt(value)} (incumbent {fmt(inc.value)}, baseline speedup {fmt(record.get('speedup_vs_baseline'), 3)}x{extra})")
+    if record.get("improvement") is not None:
+        lines.append(f"   decided on {record.get('decision_basis', 'raw milliseconds')}: "
+                     f"{record['improvement'] * 100:+.2f}% vs a {(record.get('threshold') or 0) * 100:.2f}% resolution limit"
+                     + (f"; {inc.banked} banked improvement(s) waiting to be promoted" if inc.banked else ""))
     if record.get("kernel_count") is not None:
         lines.append(f"   kernels/launch: {record['kernel_count']}, GPU busy {fmt((record.get('gpu_busy_ratio') or 0) * 100, 3)}%, "
                      f"wall {fmt(record.get('wall_ms'))} ms, duration {record.get('duration_s')} s")

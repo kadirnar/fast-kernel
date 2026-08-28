@@ -43,8 +43,10 @@ def main() -> int:
     prev_count = int(guard.get("count", 0))
     if count > prev_count:
         # a new experiment was recorded since the last stop: track whether it was accepted
-        if last.get("status") == "keep":
-            guard["no_keep"] = 0
+        if last.get("status") in ("keep", "bank"):
+            guard["no_keep"] = 0   # a bank is measured progress, just below the resolution threshold
+        elif last.get("status") == "remeasure":
+            pass                   # a re-measurement of the incumbent is neither progress nor a failure
         else:
             guard["no_keep"] = int(guard.get("no_keep", 0)) + 1
         guard = {"count": count, "no_progress": 0, "no_keep": guard.get("no_keep", 0)}

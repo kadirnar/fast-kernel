@@ -8,8 +8,8 @@
     campaigns: [], name: null, data: null, details: {}, events: [], lastEventId: 0, es: null,
     logScale: false, selected: null, filter: "", hover: null, refreshTimer: null,
   };
-  const STATUS_VAR = { keep: "--good", baseline: "--accent", discard: "--other", crash: "--critical", error: "--warning", running: "--accent" };
-  const STATUS_ICON = { keep: "✓", baseline: "○", discard: "–", crash: "✕", error: "!", running: "…" };
+  const STATUS_VAR = { keep: "--good", bank: "--good", baseline: "--accent", remeasure: "--other", discard: "--other", crash: "--critical", error: "--warning", running: "--accent" };
+  const STATUS_ICON = { keep: "✓", bank: "▣", baseline: "○", remeasure: "=", discard: "–", crash: "✕", error: "!", running: "…" };
   const SLOTS = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7"];
 
   // ---------------------------------------------------------------- utils
@@ -498,7 +498,8 @@
     const pos = {};
     let side = 1;
     exps.forEach((e, i) => {
-      const onTrunk = e.status === "keep" || e.status === "baseline";
+      // banked experiments are committed and built on, so they sit on the trunk like a keep
+      const onTrunk = e.status === "keep" || e.status === "baseline" || e.status === "bank";
       const y = onTrunk ? trunk : (trunk + side * 58);
       if (!onTrunk) side = -side;
       pos[e.number] = { x: 30 + i * gap, y };
@@ -509,7 +510,7 @@
       const path = document.createElementNS(NS, "path");
       const mx = (a.x + b.x) / 2;
       path.setAttribute("d", `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`);
-      path.setAttribute("class", "edge");
+      if (e.status === "keep" || e.status === "bank") path.setAttribute("stroke", css("--accent"));
       if (e.status === "keep") path.setAttribute("stroke", css("--accent"));
       svg.appendChild(path);
     });
@@ -520,7 +521,7 @@
       const halo = document.createElementNS(NS, "circle");
       halo.setAttribute("cx", p.x); halo.setAttribute("cy", p.y); halo.setAttribute("r", 14); halo.setAttribute("fill", "transparent");
       const c = document.createElementNS(NS, "circle");
-      c.setAttribute("cx", p.x); c.setAttribute("cy", p.y); c.setAttribute("r", e.status === "keep" || e.status === "baseline" ? 8 : 6);
+      c.setAttribute("cx", p.x); c.setAttribute("cy", p.y); c.setAttribute("r", e.status === "keep" || e.status === "baseline" ? 8 : (e.status === "bank" ? 7 : 6));
       c.setAttribute("fill", statusColor(e.status)); c.setAttribute("stroke", css("--surface")); c.setAttribute("stroke-width", 2);
       const t = document.createElementNS(NS, "text");
       t.setAttribute("x", p.x); t.setAttribute("y", p.y + (p.y >= trunk ? 22 : -14)); t.setAttribute("text-anchor", "middle");

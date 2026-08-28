@@ -134,7 +134,7 @@ def technique_matrix(history: list[dict[str, Any]]) -> dict[tuple[str, str], str
         for tech in exp.get("techniques") or []:
             key = (target, tech)
             status = exp.get("status", "")
-            if status == "keep":
+            if status in ("keep", "bank"):
                 status = "accepted"
             elif status == "discard":
                 status = "rejected"

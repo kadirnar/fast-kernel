@@ -54,9 +54,17 @@ Each iteration is the `/fk-experiment` procedure, in full:
 3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
    `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
 4. `fast-kernel eval -m "<one line>" --technique <ids> --target <id>`; on a trivial crash fix once and
-   rerun; otherwise accept the revert.
+   rerun; otherwise accept the revert. A **bank** verdict is progress, not a rejection: the gain was
+   real but under this machine's resolution, so the harness committed it and left it in `candidate/`
+   for the next experiment to build on. Continue on the same lineage; the pile is promoted as one
+   keep once it is jointly measurable. Never bundle unrelated edits to clear the threshold.
 5. `fast-kernel note "<what you learned, with numbers>" --tags <ids>`.
-6. Print one line: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>× vs baseline · next: <idea>`.
+6. Print one line: `#N kept/banked/discarded/crashed · <metric> (Δ) · <speedup>× vs baseline · next: <idea>`.
+
+**Run targets in parallel by default.** As soon as `PLAN.md` shows two or more targets with real
+headroom, start one `fk-kernel-engineer` per target (or `fast-kernel auto --agents 3 --islands 2`)
+instead of walking the list serially — the experiments are independent and each costs minutes. Keep
+the serial loop for when one target dominates or the next step depends on the last result.
 
 Delegate when it is faster: `fk-profiler` (re-rank after a surprising result), `fk-kernel-engineer`
 (a kernel for one target), `fk-verifier` (a failed gate), `fk-reviewer` (before an expensive eval),
