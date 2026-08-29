@@ -4,7 +4,6 @@ description: Writes and integrates GPU kernels (Triton, TileLang, CuTe DSL, CUDA
 tools: Read, Edit, Write, MultiEdit, Glob, Grep, Bash
 model: inherit
 skills:
-  - triton-kernels
   - cuda-graphs
   - numerical-verification
 ---

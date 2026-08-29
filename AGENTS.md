@@ -34,8 +34,11 @@ profile / ideas  →  ONE hypothesis (target × technique)  →  edit candidate/
 learn (KNOWLEDGE.md, results.tsv)  ←  keep / revert (harness decides)  ←  fast-kernel eval
 ```
 
-1. `fast-kernel status --brief`, `fast-kernel ideas`, read `PLAN.md`, `KNOWLEDGE.md` and the last experiments
-   (`fast-kernel history -n 5`). If `PLAN.md` is stale, `fast-kernel profile`.
+1. `fast-kernel brief` — one screen: incumbent and threshold, the **plateau streak** (consecutive experiments
+   without a measured improvement, and how many of them on the same target), the ranked targets with their
+   measured memory (what worked, which failures not to repeat), the last experiments and the latest insights.
+   Go deeper only where needed: `PLAN.md` (shapes, top kernels), `KNOWLEDGE.md` (every insight),
+   `fast-kernel memory --target <id>`, `fast-kernel show <N> --log`. If `PLAN.md` is stale, `fast-kernel profile`.
 2. Pick **one** target — the one with the largest measured share of end-to-end time — and form **one**
    hypothesis for it. Which technique/backend to try is yours to discover from the measurements (nothing
    tells you the method or how much it will help). Prefer untried target × approach pairs; never resubmit
@@ -94,7 +97,10 @@ on branch `fast-kernel/<model>` (`git log`, tags `exp-N`).
   to your candidate. So every experiment times the candidate **and the unmodified reference model
   interleaved, in one process** (`metrics.anchor`), and the decision uses the ratio of ratios. The
   threshold is that measurement's own uncertainty, recomputed per experiment — not a number frozen
-  at baseline. `fast-kernel show <N>` prints which basis was used.
+  at baseline. A verdict that lands within its own uncertainty of a boundary (keep/bank or
+  bank/discard) is measured longer automatically — more interleaved pairs, up to `bench.anchor_max_pairs`
+  — until it is resolved; a clear win or loss costs one batch. `fast-kernel show <N>` prints which basis
+  was used and how many pairs it took.
 - Because of this, **do not chase the threshold by bundling unrelated edits**. One hypothesis per
   experiment stays correct: small wins accumulate through banking, not by hiding several ideas in
   one diff where you cannot tell which one paid.
@@ -133,9 +139,10 @@ means install the package and retry; `shape` / `illegal-memory` means fix stride
   real speed hides. The whole-workload roofline efficiency in PLAN.md tells you how close the model as a
   whole is to the hardware limit. Change one thing, measure, keep or revert. Prefer untried target ×
   approach pairs; never resubmit an identical failed edit.
-- **Plateau** (5+ consecutive discards on a target): switch approach, switch backend, or switch target,
-  then widen the scope — combine two accepted kernels, remove intermediate copies, and revisit earlier
-  targets (the ranking changes after every keep).
+- **Plateau** — `fast-kernel brief` / `status` print the streak: consecutive experiments without a measured
+  improvement, and how many of them on the same target. At 5+ it says PLATEAU: switch approach, switch
+  backend, or switch target, then widen the scope — combine two accepted kernels, remove intermediate copies,
+  and revisit earlier targets (the ranking changes after every keep). The streak is measured, not felt.
 - **Never done**: when the obvious ideas are tried, re-profile, look at the top kernels, question data
   movement (dtypes, layouts, allocations), and invent new hypotheses. Record them in KNOWLEDGE.md.
 - Numerics are not a lever you pull: under `strict` (the default) every kernel reproduces the reference
@@ -143,21 +150,29 @@ means install the package and retry; `shape` / `illegal-memory` means fix stride
   different policy in `GOAL.md`. Never distillation, retraining or fine-tuning — the outputs stay the
   frozen reference model's.
 
-## Backends (skills) — references, not prescriptions
+## Backends — CUDA C++, and why
 
-These skills document how to implement kernels on each backend. They are references you reach for once
-*your* measurement points you at a target — nothing here maps a symptom to a mandated method:
+**Every kernel you write here is hand-written CUDA C++** (`fastkernel.backends.cuda_cpp.load_cuda_inline`),
+captured with CUDA graphs. Triton, TileLang and CuTe are not used. This is a measured policy, not a taste:
 
-- `/cuda-graphs`, `/torch-compile` — capturing / fusing a launch-bound workload
-- `/triton-kernels` — fused elementwise/norm/gating chains, epilogue-fused GEMMs, implicit-GEMM convs,
-  codebook argmin, fused attention, persistent kernels
-- `/tilelang-kernels`, `/cute-dsl-kernels`, `/hub-kernels` — pipelined GEMM/attention, hand-scheduled
-  tiles, pre-built hub kernels
-- `/cuda-cpp-kernels` — anything a DSL cannot express (barriers, PTX, warp specialization)
-- `/numerical-verification` — keeping a kernel bit-faithful to the reference
+- The wins left in a mature campaign are **fusion granularity** — a whole SEANet resnet block or a whole
+  RVQ stage in *one* launch, so its intermediates never reach global memory. Adopting a CUDA-fused lineage
+  of `campaigns/mimi` was worth **+13.8 % in one experiment**, on a tree where a season of tile tuning had
+  already reached 70–98 % of every measured floor and every further fusion measured as a loss.
+- A tile DSL's automatic pipeline will not give you that control. `cp.async` is a DMA: it **cannot transform
+  a value in flight**, so folding an activation into a staged load forces a barrier inside the very pipeline
+  that exists to hide latency — measured at **3.6× slower**, at the theoretical best configuration.
+- The corollary is that individually-measured fusions can each look like losses while their **joint** optimum
+  wins. Three engineers measured three such fusions at +7.85…+73.32 %, 11.4× and 3.6× against a DSL
+  incumbent; the build that does all three is 12.8 % faster, because the buffers they remove never exist
+  there. **A hill-climb from a partially-fused tree cannot reach a fully-fused one.**
 
-A backend that is not installed is not a limit: install it (`uv pip install ...`, the harness also does
-this automatically on probe) or use `fast-kernel toolchain install`, then continue.
+The skills that document how: `/cuda-cpp-kernels` (the implementation backend), `/cuda-graphs` (capture),
+`/hub-kernels` (a pre-built CUDA kernel is still CUDA), `/numerical-verification` (keeping a kernel
+bit-faithful to the reference). Leaving an op on stock torch is always a legitimate answer.
+
+A missing toolchain is not a limit: `fast-kernel toolchain install --cuda 13.3` provides a self-contained
+nvcc/CCCL/NVVM from pip wheels, and `ensure_cuda_home()` wires CUDA_HOME/PATH.
 
 ## Roles (multi-agent)
 
@@ -166,7 +181,10 @@ different targets are independent, each one costs minutes of build + gates + ben
 ranking only changes when something is accepted. **Once `PLAN.md` lists two or more targets with
 real headroom, run them in parallel** — `fast-kernel auto --agents 3 --islands 2`, or delegate one
 `fk-kernel-engineer` per target — instead of walking the list one experiment at a time. Reserve the
-serial loop for when a single target dominates or the next step depends on the last result.
+serial loop for when a single target dominates or the next step depends on the last result. Parallel
+agents think and build concurrently; the *measurements* never overlap — every `fast-kernel eval` /
+`baseline` / `profile` / `probe` holds a machine-wide GPU lock for its harness run, and the wait is not
+charged to the experiment's timeout (explore in parallel, measure serially, enforced).
 
 Delegate to the project subagents:
 `fk-profiler` (hotspot analysis), `fk-kernel-engineer` (writes kernels), `fk-verifier` (debugs gate

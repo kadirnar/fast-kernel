@@ -173,7 +173,7 @@ def resolve(text: str, root: Path | None = None, cwd: Path | None = None) -> dic
             steps.append(f"cd {root} && (uv run fast-kernel dashboard --root campaigns > .fast-kernel-dashboard.log 2>&1 &) ; sleep 1; cat .fast-kernel-dashboard.log")
         if not plan["loop_active"]:
             steps.append(f"cd {campaign_root} && uv run fast-kernel loop start")
-        steps.append(f"cd {campaign_root} && uv run fast-kernel status --brief && uv run fast-kernel ideas")
+        steps.append(f"cd {campaign_root} && uv run fast-kernel brief")
         steps.append("run experiments (/fk-experiment procedure) until the user says stop")
     plan["steps"] = steps
     return plan

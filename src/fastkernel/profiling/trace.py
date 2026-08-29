@@ -117,9 +117,14 @@ def profile_workload(model: Any, run_fn, inputs: dict[str, Any], hooks_root: Any
     shapes: dict[str, dict[str, Any]] = {}
     module_paths: dict[int, str] = {}
     with torch.inference_mode():
+        # Shapes are captured through module forward hooks, so this call must run the *eager* path:
+        # a candidate that replays CUDA graphs never enters forward(), the hooks never fire, and every
+        # target would be left without shapes -- and therefore without a roofline estimate (SOL = 0 %,
+        # headroom collapses to raw share). Same attribution context as the profiled run below.
         shape_handles = _capture_shapes(hooks_root, shapes)
         try:
-            run_fn(model, inputs)
+            with attribution_context():
+                run_fn(model, inputs)
         finally:
             for h in shape_handles:
                 h.remove()
@@ -142,13 +147,23 @@ def profile_workload(model: Any, run_fn, inputs: dict[str, Any], hooks_root: Any
         finally:
             for h in handles:
                 h.remove()
-    # Wall time without the profiler (the profiler adds CPU overhead).
+    # Wall time without the profiler (the profiler adds CPU overhead).  This used to be ONE
+    # un-warmed call, which put the denominator of `gpu_busy_ratio` at whatever clock state and
+    # first-call cost the GPU happened to be in: on campaigns/mimi it read 1.686 ms against a
+    # benchmarked median of 1.430, so the ratio reported 83.6 % busy where the truth against
+    # measured latency was 98.6 % -- and agents then hunt 16 % of idle that does not exist.
     with torch.inference_mode():
+        for _ in range(3):
+            run_fn(model, inputs)
         device_sync()
-        t0 = time.perf_counter()
-        run_fn(model, inputs)
-        device_sync()
-        plain_wall_ms = (time.perf_counter() - t0) * 1e3
+        walls = []
+        for _ in range(7):
+            t0 = time.perf_counter()
+            run_fn(model, inputs)
+            device_sync()
+            walls.append((time.perf_counter() - t0) * 1e3)
+        walls.sort()
+        plain_wall_ms = walls[len(walls) // 2]
 
     fd, path = tempfile.mkstemp(suffix=".json", prefix="fk-trace-")
     os.close(fd)
@@ -168,6 +183,9 @@ def profile_workload(model: Any, run_fn, inputs: dict[str, Any], hooks_root: Any
     result["wall_ms_profiled"] = wall_ms
     result["wall_ms"] = plain_wall_ms
     busy = result["gpu_busy_ms"]
+    # Kept for the dashboard, but `evaluate` overrides it with the benchmark's own median once
+    # that exists: a ratio is only as good as its denominator, and the benchmark measures the
+    # same call under the protocol the campaign's verdicts are made on.
     result["gpu_busy_ratio"] = (busy / plain_wall_ms) if plain_wall_ms > 0 else None
     result["launch_bound"] = bool(result["gpu_busy_ratio"] is not None and result["gpu_busy_ratio"] < 0.6)
     result["avg_kernel_us"] = (busy * 1e3 / result["kernel_count"]) if result["kernel_count"] else None

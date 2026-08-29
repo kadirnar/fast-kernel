@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastkernel import cli, memory
-from fastkernel.campaign import Campaign, Incumbent
+from fastkernel.campaign import Campaign
 
 
 def test_classify_failure():

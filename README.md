@@ -69,7 +69,7 @@ audio codes and the same waveform as the original.
 6. `uv run fast-kernel dashboard --root campaigns` in the background — the live graph of every
    experiment (it prints the URL; tell me once).
 7. `uv run fast-kernel loop start` — the Stop hook keeps this session iterating.
-8. The loop: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
+8. The loop: `fast-kernel brief` (state, plateau streak, ranked targets with their measured memory, last experiments, insights) → PLAN.md / KNOWLEDGE.md for depth →
    `fast-kernel memory --target <id>` (what was already measured on this target: what worked, which
    failures not to repeat) → one hypothesis for the target with the most measured headroom
    (share x (1 - roofline efficiency)); which technique and backend to use is yours to discover from the

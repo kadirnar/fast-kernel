@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import math
 import os
 import sys
 import time
@@ -66,6 +67,46 @@ def _materialize(tree: Any) -> Any:
         except Exception:  # noqa: BLE001
             return tree
     return tree
+
+
+def _decision_resolved(root: Path, goal):
+    """The stopping rule for the anchored comparison, phrased in the harness's own decision terms.
+
+    The incumbent's anchor ratio (reference / incumbent, from .fast-kernel/incumbent.json) turns the
+    candidate's ratio into a measured gain; the decision boundaries are 0 (bank vs discard) and the
+    keep threshold max(min_improvement, combined uncertainty). The verdict is *resolved* once the
+    gain sits further than its own combined uncertainty from both boundaries. Anything closer is
+    a coin flip that more pairs can settle, and only then are more pairs spent. Without an anchored
+    incumbent there is nothing to resolve against: one batch, as before.
+    """
+    inc = read_json(root / ".fast-kernel" / "incumbent.json", {}) or {}
+    inc_ratio = inc.get("anchor_ratio")
+    inc_unc = float(inc.get("anchor_uncertainty") or 0.0)
+    if not inc_ratio:
+        return None
+
+    inc_value = inc.get("value")
+
+    def resolved(ratio: float, uncertainty: float, cand_median_ms: float = float("nan")) -> bool:
+        if not (ratio == ratio) or uncertainty == float("inf"):
+            return False
+        gain = ratio / inc_ratio - 1.0
+        combined = math.hypot(uncertainty, inc_unc)
+        threshold = max(goal.min_improvement, combined)
+        if not (abs(gain) > combined and abs(gain - threshold) > combined):
+            return False
+        # Two bases, one change: the anchored ratio and the raw millisecond comparison should agree
+        # on its SIGN. Anchoring exists so that drift does not veto a real gain, so a disagreement
+        # does not overrule the anchor -- but it does mean this batch has not settled the question,
+        # and more pairs are exactly what settles it. In campaigns/mimi a 20-pair reading kept a
+        # change the profiler put at +18.7 us of gpu_busy and discarded its revert on the next run.
+        if inc_value and cand_median_ms == cand_median_ms and cand_median_ms > 0:
+            raw_gain = (float(inc_value) / cand_median_ms - 1.0) if goal.minimize else (cand_median_ms / float(inc_value) - 1.0)
+            if (gain > 0) != (raw_gain > 0):
+                return False
+        return True
+
+    return resolved
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -211,11 +252,13 @@ def main(argv: list[str] | None = None) -> int:
             ref_fn = lambda m=anchor_model: primary.run(m, inputs[primary.name])  # noqa: E731
             cand_fn = lambda: primary.run(candidate, inputs[primary.name])        # noqa: E731
             cmp = compare_callables(ref_fn, cand_fn, warmup=args.warmup or goal.bench.warmup,
-                                    pairs=goal.bench.anchor_pairs, ramp_seconds=goal.bench.ramp_seconds)
+                                    pairs=goal.bench.anchor_pairs, ramp_seconds=goal.bench.ramp_seconds,
+                                    max_pairs=goal.bench.anchor_max_pairs, resolved=_decision_resolved(root, goal))
             metrics["anchor"] = {k: v for k, v in cmp.items() if k != "ratios"}
             log(f"anchor: reference {cmp['a_median_ms']:.4f} ms vs candidate {cmp['b_median_ms']:.4f} ms "
                 f"-> {cmp['ratio']:.4f}x +/- {cmp['ratio_uncertainty'] * 100:.2f}% over {cmp['pairs']} pairs "
-                f"({cmp['inner_a']}/{cmp['inner_b']} calls per sample)")
+                f"in {cmp.get('rounds', 1)} round(s) ({cmp['inner_a']}/{cmp['inner_b']} calls per sample)"
+                + ("; borderline verdict, so more pairs were spent to settle it" if cmp.get("rounds", 1) > 1 else ""))
             del ref_fn, cand_fn
         except Exception:  # noqa: BLE001
             metrics["anchor_error"] = traceback.format_exc()

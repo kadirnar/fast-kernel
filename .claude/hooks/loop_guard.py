@@ -73,7 +73,7 @@ def main() -> int:
     reason = (
         f"fast-kernel loop is ACTIVE for campaign `{campaign}` ({count} experiments so far; last: "
         f"#{last.get('number', '-')} [{last.get('status', '-')}] {str(last.get('description', ''))[:80]}). "
-        f"Continue with the next experiment now: run `fast-kernel status --brief` and `fast-kernel ideas` in that directory, "
+        f"Continue with the next experiment now: run `fast-kernel brief` in that directory, "
         f"pick the target with the most measured headroom, discover the technique yourself, edit only candidate/, then "
         f"`fast-kernel eval -m ...` and `fast-kernel note ...`. If a kernel needs a missing library, install it and continue. "
         f"Do not ask whether to continue; the loop stops itself when the optimization is exhausted."

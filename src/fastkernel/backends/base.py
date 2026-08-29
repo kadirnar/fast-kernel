@@ -113,13 +113,12 @@ def device_capabilities(microbench: bool = True) -> dict[str, Any]:
     return info
 
 
-BACKENDS = ["triton", "tilelang", "cute-dsl", "cuda-cpp", "torch.compile", "cuda-graphs", "hub-kernels"]
+# CUDA C++ is the implementation backend; `cuda-graphs` captures it and `hub-kernels` is a
+# pre-built CUDA kernel, which is still CUDA. The tile DSLs are not probed because they are not
+# offered -- see the playbook's module docstring for the measurements behind that.
+BACKENDS = ["cuda-cpp", "cuda-graphs", "hub-kernels"]
 _MODULES = {
-    "triton": "fastkernel.backends.triton_backend",
-    "tilelang": "fastkernel.backends.tilelang_backend",
-    "cute-dsl": "fastkernel.backends.cute_backend",
     "cuda-cpp": "fastkernel.backends.cuda_cpp",
-    "torch.compile": "fastkernel.backends.compile_backend",
     "cuda-graphs": "fastkernel.backends.graphs",
     "hub-kernels": "fastkernel.backends.hub_kernels",
 }

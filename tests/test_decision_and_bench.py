@@ -168,3 +168,33 @@ def test_self_noise_is_not_fooled_by_an_unequal_warm_up():
 def test_auto_inner_batches_short_calls_and_leaves_long_ones_alone():
     assert bench.auto_inner(lambda: _spin(0.00005), target_ms=5.0) > 1
     assert bench.auto_inner(lambda: _spin(0.01), target_ms=5.0) == 1
+
+
+# ---- the two bases must agree, and when they do not the run says so ----------------------
+
+def test_a_contested_reading_is_named_in_the_verdict_not_hidden():
+    """Anchored and raw disagreeing on the SIGN is the campaign's worst failure mode, so it is said.
+
+    In campaigns/mimi a change was kept at +4.21 % anchored that the profiler put at +18.7 us of
+    gpu_busy and five absolute readings put at 1.45 % slower; its revert was then discarded at
+    -1.07 % anchored while the same run measured 1.406 against an incumbent of 1.432. Anchoring
+    still decides -- it exists so drift cannot veto a real gain -- but the disagreement is now
+    printed, and `_decision_resolved` spends more pairs on it before the verdict is taken.
+    """
+    inc = Incumbent(number=1, value=10.0, anchor_ratio=2.0, anchor_uncertainty=0.001)
+    # anchored says +5 % while the candidate is slower in raw milliseconds
+    d = decide_improvement(_goal(), inc, _anchor(2.0 * 1.05, 0.001), 10.5)
+    assert d["contested"] is True
+    assert d["raw_improvement"] < 0 < d["improvement"]
+    assert "CONTESTED" in d["reason"]
+    # and when they agree, nothing is flagged
+    ok = decide_improvement(_goal(), inc, _anchor(2.0 * 1.05, 0.001), 9.5)
+    assert ok["contested"] is False and "CONTESTED" not in ok["reason"]
+
+
+def test_gpu_busy_ratio_uses_the_benchmarked_latency_not_the_profiler_s_own_wall():
+    """The profile times its own call for a denominator; the benchmark times it properly."""
+    from fastkernel.harness.evaluate import _busy_ratio
+    prof = {"gpu_busy_ms": 1.3418, "gpu_busy_ratio": 0.836}      # 0.836 came from a 1.605 ms wall
+    assert _busy_ratio(prof, 1.3504) == pytest.approx(0.9936, abs=1e-3)
+    assert _busy_ratio({"gpu_busy_ratio": 0.836}, None) == 0.836  # no benchmark yet -> unchanged
