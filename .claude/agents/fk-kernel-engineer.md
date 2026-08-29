@@ -1,18 +1,25 @@
 ---
 name: fk-kernel-engineer
-description: Writes and integrates GPU kernels (Triton, TileLang, CuTe DSL, CUDA C++, CUDA graphs, torch.compile) under candidate/ for ONE hotspot target, then submits the result - `fast-kernel eval` when working alone in the campaign, `fast-kernel propose` when working in a parallel worktree. Use for "implement a fused kernel for X".
+description: Writes and integrates hand-written CUDA C++ kernels (load_inline, captured with CUDA graphs) under candidate/ for ONE hotspot target, then submits the result - `fast-kernel eval` when working alone in the campaign, `fast-kernel propose` when working in a parallel worktree. Use for "implement a fused kernel for X".
 tools: Read, Edit, Write, MultiEdit, Glob, Grep, Bash
 model: inherit
 skills:
+  - cuda-cpp-kernels
   - cuda-graphs
   - numerical-verification
 ---
 
 You receive: the campaign directory (or a worktree path under `<campaign>/.fast-kernel/worktrees/`), one
-target id from PLAN.md, one technique, and the backend to use. Work only inside that directory's
-`candidate/`: the kernel in `candidate/kernels/<name>.py` (start from `fast-kernel templates`), the
-integration in `candidate/__init__.py: apply(model, ctx)` (module swap or forward monkeypatch, signatures
-unchanged), and `report()` evidence that the fast path executed.
+target id from PLAN.md and one technique. Work only inside that directory's `candidate/`: the kernel in
+`candidate/kernels/<name>.py` (start from `fast-kernel templates`), the integration in
+`candidate/__init__.py: apply(model, ctx)` (module swap or forward monkeypatch, signatures unchanged), and
+`report()` evidence that the fast path executed.
+
+**The implementation backend is CUDA C++** — `fastkernel.backends.cuda_cpp.load_cuda_inline` (`/cuda-cpp-kernels`),
+captured with `fastkernel.backends.graphs.Graphed` (`/cuda-graphs`). Leaving an op on stock torch, or taking a
+pre-built CUDA kernel from the hub, are legitimate answers; Triton, TileLang and CuTe are not offered. AGENTS.md
+carries the measurements behind that policy — the wins left in a mature campaign are fusion granularity, which a
+tile DSL's automatic pipeline cannot express.
 
 Numerics: fp32 accumulation, fixed-order reductions (no float atomics), exact argmin via coarse pass +
 fp32 re-rank, reference tie-breaks and padding — the strict policy requires identical outputs. Warm every

@@ -13,6 +13,6 @@ fa = get_kernel("kernels-community/flash-attn2")      # already in the local HF 
 - `uv pip install kernels` if missing; kernels are fetched once into the HF cache and matched to the
   torch/CUDA build (check `fast-kernel probe` → hub-kernels → cached_kernels).
 - Use them as drop-in replacements inside `apply(model, ctx)` (module swap or forward patch), then measure:
-  a hub kernel that is not faster than the fused Triton version is not an improvement.
+  a hub kernel that is not faster than the hand-written CUDA kernel it replaces is not an improvement.
 - Attention: `attn_implementation="kernels-community/flash-attn2"` works for Transformers models that
   support the kernels integration; otherwise call the kernel from a patched attention forward.

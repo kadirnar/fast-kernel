@@ -19,7 +19,7 @@ failed edits.
 
 ## Insights
 
-(add with `fast-kernel note "..." --tags triton,rvq`)
+(add with `fast-kernel note "..." --tags fused-quantizer,rvq`)
 
 ## Experiment log
 

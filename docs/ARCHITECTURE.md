@@ -16,7 +16,7 @@ src/fastkernel/
   models/            ModelSpec contract + built-ins (mimi, lfm25, lfm-audio, yolo, hf-causal-lm, torch module)
   profiling/         trace (torch.profiler + module hooks + Python frames) -> classify (roofline) -> rank (measured headroom) -> plan
   harness/           gates (5 stages) -> bench (fixed protocol) -> run.py (subprocess) -> evaluate.py (keep/revert)
-  backends/          probes + helpers: triton, tilelang, cute-dsl, cuda-cpp (nvcc discovery), torch.compile, cuda-graphs,
+  backends/          probes + helpers: cuda-cpp (the implementation backend, nvcc discovery), cuda-graphs,
                      hub-kernels, toolchain (pip-wheel CUDA toolchains); templates/ starter kernels
   dashboard/         stdlib HTTP + SSE server, static single-page app, self-contained report export
   agents/            headless driver (claude -p per experiment), worktree workers, inbox promotion, prompts

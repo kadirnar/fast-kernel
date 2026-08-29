@@ -1,10 +1,10 @@
 # fast-kernel
 
 fast-kernel makes a model run faster **without changing what it produces**. You give an agent
-(Claude Code) the prompt below; it profiles the model, finds the slow parts, writes and tests GPU
-kernels (Triton, TileLang, CuTe DSL, CUDA C++, CUDA graphs, torch.compile), measures each attempt
-against the original model, keeps only what is faster *and* identical in output, and repeats until the
-optimization is exhausted — with several agents working at once and every experiment on a live graph.
+(Claude Code) the prompt below; it profiles the model, finds the slow parts, writes and tests
+hand-written CUDA C++ kernels captured with CUDA graphs, measures each attempt against the original
+model, keeps only what is faster *and* identical in output, and repeats until the optimization is
+exhausted — with several agents working at once and every experiment on a live graph.
 
 ## Setup (once)
 
@@ -36,8 +36,7 @@ audio codes and the same waveform as the original.
 1. `README.md`, `AGENTS.md` (the research program — every rule below is binding) and `CLAUDE.md`.
 2. `.claude/agents/*.md` (the roles you may delegate to) and these skills in `.claude/skills/`:
    `fk-optimize`, `fk-experiment`, `fk-parallel`, `hotspot-analysis`, `numerical-verification`, and the
-   backend skills `cuda-graphs`, `triton-kernels`, `tilelang-kernels`, `cute-dsl-kernels`,
-   `cuda-cpp-kernels`, `torch-compile`, `hub-kernels`.
+   backend skills `cuda-cpp-kernels` (the implementation backend), `cuda-graphs`, `hub-kernels`.
 3. The harness you must never edit but must understand: `src/fastkernel/harness/gates.py` (the five
    correctness stages), `src/fastkernel/harness/evaluate.py` (keep/revert logic), `src/fastkernel/harness/run.py`,
    `src/fastkernel/profiling/` (how targets are ranked by measured headroom), `src/fastkernel/memory.py`
@@ -60,8 +59,8 @@ audio codes and the same waveform as the original.
    (`uv sync --extra cuda`).
 3. `uv run fast-kernel init mimi` (only if the campaign does not exist).
 4. `uv run fast-kernel probe` — measures this GPU (bandwidth, TFLOPS, launch latency) and compiles one
-   probe kernel per backend (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub
-   kernels) → `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
+   probe kernel per backend (CUDA C++ — the implementation backend — CUDA graphs, hub kernels) →
+   `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
    install --cuda <version>`, `uv pip install ...`) and probed again — never recorded as a limitation.
 5. `uv run fast-kernel baseline` — experiment #0: the unmodified reference model passes its own five
    gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N synchronised runs),
@@ -72,8 +71,8 @@ audio codes and the same waveform as the original.
 8. The loop: `fast-kernel brief` (state, plateau streak, ranked targets with their measured memory, last experiments, insights) → PLAN.md / KNOWLEDGE.md for depth →
    `fast-kernel memory --target <id>` (what was already measured on this target: what worked, which
    failures not to repeat) → one hypothesis for the target with the most measured headroom
-   (share x (1 - roofline efficiency)); which technique and backend to use is yours to discover from the
-   measurements, nothing prescribes it → implement it only under `candidate/`
+   (share x (1 - roofline efficiency)); which technique to use is yours to discover from the measurements,
+   nothing prescribes it (the backend is CUDA C++) → implement it only under `candidate/`
    (`candidate/__init__.py: apply(model, ctx)`, kernels in `candidate/kernels/`) → self-test on the real
    shapes → `fast-kernel eval -m "<one line>" --technique <ids> --target <id>` → read the verdict →
    `fast-kernel note "<insight with numbers>"` → next. Each experiment builds on the accepted incumbent
@@ -81,14 +80,16 @@ audio codes and the same waveform as the original.
 
 ## Discover, do not assume
 
-Nothing about the hardware or the model is given to you in advance and nothing constrains what you may
-try. Where the time goes is measured by `fast-kernel profile` on this machine; which backends compile is
+Nothing about the hardware or the model is given to you in advance, and no measurement is handed to you.
+Where the time goes is measured by `fast-kernel profile` on this machine; whether the toolchain builds is
 measured by `fast-kernel probe`; whether an idea helps is measured by `fast-kernel eval`. Every hypothesis
 comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md, `fast-kernel memory`).
-Any technique and any backend may be tried in any order; ideas that failed here are facts about this
-model on this machine, recorded with numbers, never generalised. Never write a device or vendor name into
-notes, code or reports, and never conclude that something is unsupported — fix the environment, re-probe,
-or take another backend.
+Any technique may be tried in any order; ideas that failed here are facts about this model on this machine,
+recorded with numbers, never generalised. The one thing that is *not* yours to choose is the implementation
+backend: every kernel is hand-written CUDA C++ captured with CUDA graphs (stock torch and pre-built hub
+kernels stay legitimate answers), for the measured reasons in AGENTS.md. Never write a device or vendor name
+into notes, code or reports, and never conclude that something is unsupported — fix the environment and
+re-probe.
 
 ## Multi-agent structure (use it)
 
@@ -124,7 +125,16 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
   (`uv pip install ...`; the harness also auto-installs a backend's package on probe) and note it.
 - Plateaus (5 discards on a target): change approach, then backend, then target; then widen the
   scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
-- Report as short lines: `#N kept/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
+- Verdicts are keep / **bank** / discard / crash. A bank means the gain was real but smaller than this
+  machine can resolve in one measurement: the harness commits it and leaves it in `candidate/`, and the
+  next experiment builds on top of it until the pile is jointly large enough to promote. Treat a bank as
+  progress, keep going on the same lineage, and do not bundle unrelated edits to clear the threshold.
+- Speed is judged by timing your candidate and the reference model interleaved in one process, so drift
+  between sessions cannot be mistaken for a speedup. The threshold is that measurement's own uncertainty.
+- Two or more targets with real headroom in `PLAN.md` means run them **in parallel** (one
+  `fk-kernel-engineer` per target, or `uv run fast-kernel auto --agents 3 --islands 2`) rather than
+  walking the list one experiment at a time. Serial is for when one target dominates.
+- Report as short lines: `#N kept/banked/discarded/crashed · <metric> (Δ) · <speedup>x vs baseline · next: <idea>`.
   Never end a turn with a question. Never ask whether to continue.
 
 ## Stopping

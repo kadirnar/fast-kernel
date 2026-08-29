@@ -42,7 +42,6 @@ __pycache__/
 *.pyc
 *.log
 .pytest_cache/
-.triton/
 """
 
 

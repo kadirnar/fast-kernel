@@ -39,9 +39,9 @@ so this is a statement about **reduction order**, and the order is a property of
   `torch.backends.cuda.matmul.allow_tf32 = False` compares your exact kernel against a *TF32*
   reference and blames your kernel for a mismatch it did not cause.
 - **FMA contraction changes bits.** `a * b + c` fused into one FMA rounds once; separate multiply and
-  add round twice. If the reference did not contract, block it — in Triton
-  `tl.inline_asm_elementwise("mul.rn.f32 $0,$1,$2;", ...)`, in CUDA C++ `__fmul_rn` / `__fadd_rn`
-  (and `__fmaf_rn` where you *do* want the fused form).
+  add round twice. If the reference did not contract, block it: `__fmul_rn` / `__fadd_rn` (and
+  `__fmaf_rn` where you *do* want the fused form). `-O3` alone lets nvcc contract freely, so state the
+  intent per expression rather than relying on the flags.
 - **Scaling by a power of two is exact**, so a factor of ±2^k can be folded into a precomputed
   constant without changing a single bit. Nothing else about a constant fold is safe.
 - **Padding for parallelism is free accuracy-wise but not free of consequence**: vendor kernels often

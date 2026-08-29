@@ -90,18 +90,18 @@ TECHNIQUES: list[Technique] = [
               "bf16/fp16 tensor cores and half the bytes. Keep residual streams / accumulators fp32; verify with the gates "
               "(strict policies may forbid this).",
               ("Try TF32 first (allow_tf32), then bf16 weights with fp32 activations, then full bf16.",)),
-    # ---- Tier 1-2: memory & block tuning (Triton/TileLang/CuTe) ---------------------------
+    # ---- Tier 1-2: memory & block tuning ---------------------------------------------------
     Technique("block-tuning", "Block-size / num_warps / num_stages sweep (autotune)", 1,
               ("gemm", "conv", "attention", "norm", "reduction"), ("compute", "memory"), ("cuda-cpp",),
               1.3, "low", "cuda-cpp-kernels",
-              "Sweep BLOCK_M/N/K in powers of two (16..256), rectangular tiles, num_warps 2..8, num_stages 2..5. Cache the "
-              "winning config per shape.",
-              ("Use @triton.autotune keyed on the shape; persist results to candidate/tuned/*.json.",)),
+              "Sweep the tile constants (BLOCK_M/N/K in powers of two, 16..256, rectangular tiles), the block size (64..512 "
+              "threads) and the pipeline depth. Cache the winning config per shape.",
+              ("Sweep the tile constants of the CUDA kernel per shape; persist winners to candidate/tuned/*.json.",)),
     Technique("memory-access", "Coalescing, vectorized loads, channels-last, L2 swizzle, prefetch", 2,
               ("gemm", "conv", "norm", "elementwise", "reduction", "indexing"), ("memory",), ("cuda-cpp",),
               1.3, "low", "cuda-cpp-kernels",
-              "Ensure contiguous access along the fastest dimension; transpose operands or switch to channels-last; group "
-              "program ids so neighbouring tiles share L2; software pipeline with num_stages.",
+              "Ensure contiguous access along the fastest dimension; vectorize with float4/__ldg; transpose operands or switch "
+              "to channels-last; swizzle block indices so neighbouring tiles share L2; pipeline global->shared with cp.async.",
               ()),
     # ---- Tier 3: compute -------------------------------------------------------------------
     Technique("epilogue-fusion", "Fuse bias/activation/residual/cast/quant into the GEMM or conv epilogue", 3,

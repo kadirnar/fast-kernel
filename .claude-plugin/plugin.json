@@ -2,10 +2,10 @@
   "name": "fast-kernel",
   "displayName": "fast-kernel",
   "version": "0.1.0",
-  "description": "Autoresearch for model inference: profile, hypothesise, eval, keep/revert -- forever -- with Triton/TileLang/CuTe/CUDA backends and a live experiment graph.",
+  "description": "Autoresearch for model inference: profile, hypothesise, eval, keep/revert -- forever -- with hand-written CUDA C++ kernels, CUDA graphs and a live experiment graph.",
   "author": { "name": "fast-kernel contributors" },
   "license": "MIT",
-  "keywords": ["gpu", "kernels", "triton", "tilelang", "cuda", "autoresearch", "optimization"],
+  "keywords": ["gpu", "kernels", "cuda", "cuda-graphs", "autoresearch", "optimization"],
   "agents": "./.claude/agents",
   "skills": "./.claude/skills",
   "hooks": "./.claude/hooks/hooks.json"

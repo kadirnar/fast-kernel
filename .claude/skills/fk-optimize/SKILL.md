@@ -35,7 +35,7 @@ prefixed with the right `cd`. Follow `steps` in order. Every later command in th
 |---|---|---|
 | `uv sync --extra cuda [--extra audio\|yolo]` | GPU runtime / model extras | read the resolver error; never continue on CPU |
 | `fast-kernel init <model>` | creates `campaigns/<model>` from the template (GOAL.md, candidate/, notes) | — |
-| `fast-kernel probe` | GPU roofline + compiles a probe kernel per backend → `capabilities.json` | a backend not READY with a host-compiler/nvcc error → `uv run fast-kernel toolchain install --cuda 13.3`, probe again; still failing → note it in KNOWLEDGE.md, other backends carry the campaign |
+| `fast-kernel probe` | GPU roofline + compiles a probe kernel per backend (cuda-cpp, cuda-graphs, hub-kernels) → `capabilities.json` | `cuda-cpp` not READY with a host-compiler/nvcc error → `uv run fast-kernel toolchain install --cuda 13.3`, probe again; it is the implementation backend, so fix it rather than working around it |
 | `fast-kernel baseline` | experiment #0: reference model, 5 gates on itself, benchmark, noise floor, PLAN.md | crash → `fast-kernel show 0 --log`; usually a missing model download (network) or VRAM held by another process (`nvidia-smi`); fix and rerun |
 | dashboard | `fast-kernel dashboard --root campaigns` in the background; prints the URL (8765 or the next free port) | tell the user the URL once |
 | `fast-kernel loop start` | sets `.fast-kernel/loop.active`; the Stop hook now keeps this session iterating | — |
@@ -51,8 +51,9 @@ Each iteration is the `/fk-experiment` procedure, in full:
    insights); PLAN.md / KNOWLEDGE.md / `fast-kernel memory --target <id>` only for depth.
 2. One hypothesis for the target with the most measured headroom = share × (1 − roofline efficiency).
    Prefer: untried > larger measured share > lower SOL. Never resubmit an identical failed edit.
-3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
-   `fastkernel.backends.graphs.Graphed`. Add `report()` evidence. Keep the diff focused.
+3. Implement only under `candidate/`, in CUDA C++ (`/cuda-cpp-kernels`, `load_cuda_inline`) captured with
+   `fastkernel.backends.graphs.Graphed` (`/cuda-graphs`); stock torch and `/hub-kernels` stay available, and
+   no Triton/TileLang/CuTe. Reuse starters (`fast-kernel templates`). Add `report()` evidence. Keep the diff focused.
 4. `fast-kernel eval -m "<one line>" --technique <ids> --target <id>`; on a trivial crash fix once and
    rerun; otherwise accept the revert. A **bank** verdict is progress, not a rejection: the gain was
    real but under this machine's resolution, so the harness committed it and left it in `candidate/`
@@ -81,9 +82,12 @@ looser numerics, write "needs the human's decision" in KNOWLEDGE.md and take the
 
 ## 4. Plateaus, errors, environment
 
-- 5 consecutive discards on a target → switch approach, then backend (Triton ↔ TileLang ↔ CuTe ↔ CUDA C++
-  ↔ hub kernels), then target; then widen scope (combine kept kernels, remove copies between them),
-  then `fast-kernel profile` and re-read the top kernels list. The list of ideas is never empty.
+- 5 consecutive discards on a target → switch approach (fusion granularity, layout, precision within the
+  policy, persistent vs multi-kernel, graph capture), then target; then widen scope (combine kept kernels,
+  remove the copies between them), then `fast-kernel profile` and re-read the top kernels list. The list of
+  ideas is never empty. Switching *backend* is not one of the moves: the implementation backend is CUDA C++
+  (stock torch and `/hub-kernels` stay available), and a plateau is a reason to change the kernel, not the
+  language.
 - crash → `fast-kernel show <N> --log`; trivial → fix and rerun once; fundamental → `note` and move on;
   same crash three times → abandon the approach.
 - GPU shared with another process (high utilisation in `nvidia-smi`) → measurements are noisy; the
