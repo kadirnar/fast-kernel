@@ -1,6 +1,6 @@
 ---
 name: cuda-cpp-kernels
-description: How to write CUDA C++ kernels for fast-kernel candidates via torch.utils.cpp_extension.load_inline with the pip-installed nvcc - fused epilogues, warp-level reductions, grid barriers / persistent kernels, wmma/mma tensor cores. Use when a DSL cannot express the kernel.
+description: How to write CUDA C++ kernels for fast-kernel candidates via torch.utils.cpp_extension.load_inline with the pip-installed nvcc - fused epilogues, warp-level reductions, grid barriers / persistent kernels, wmma/mma tensor cores. CUDA C++ is the implementation backend for every fast-kernel candidate; use this whenever you write a kernel.
 argument-hint: [kernel-kind]
 allowed-tools: Bash(fast-kernel templates), Bash(fast-kernel probe), Read, Edit, Write, Glob, Grep
 ---

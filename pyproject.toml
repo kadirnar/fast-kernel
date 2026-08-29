@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "fast-kernel"
 version = "0.1.0"
-description = "Autoresearch for model inference: an agent harness that finds a model's slow parts and runs an endless keep/revert kernel-optimization loop (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs) with every experiment on a live graph."
+description = "Autoresearch for model inference: an agent harness that finds a model's slow parts and runs an endless keep/revert loop of hand-written CUDA C++ kernels captured with CUDA graphs, with every experiment on a live graph."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "fast-kernel contributors" }]
-keywords = ["gpu", "kernels", "triton", "tilelang", "cuda", "autoresearch", "claude-code", "agents"]
+keywords = ["gpu", "kernels", "cuda", "cuda-graphs", "autoresearch", "claude-code", "agents"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -22,7 +22,6 @@ dependencies = []
 # GPU runtime used by the harness (profiling, gates, benchmarks) and the model examples.
 cuda = [
   "torch==2.13.0",
-  "triton>=3.7",
   "transformers>=4.48",
   "safetensors>=0.5",
   "huggingface_hub>=0.28",
@@ -36,13 +35,11 @@ cuda = [
   "nvidia-nvvm>=13.0,<13.1; sys_platform == 'linux'",
   "ninja>=1.11",
 ]
-tilelang = ["tilelang>=0.1.13"]
-cute = ["nvidia-cutlass-dsl>=4.7"]
 hub = ["kernels>=0.6"]
 yolo = ["ultralytics>=8.4"]
 audio = ["liquid-audio>=1.0"]
 agent = ["claude-agent-sdk>=0.1"]
-all = ["fast-kernel[cuda,tilelang,cute,hub,yolo,audio]"]
+all = ["fast-kernel[cuda,hub,yolo,audio]"]
 dev = ["pytest>=8.3", "ruff>=0.9"]
 
 [project.scripts]

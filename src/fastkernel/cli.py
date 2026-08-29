@@ -563,7 +563,7 @@ def cmd_toolchain(args) -> None:
     from .backends.toolchain import install_cuda_toolchain, list_toolchains, remove_toolchain, toolchain_root
     if args.action == "install":
         home = install_cuda_toolchain(args.cuda)
-        print(f"CUDA {args.cuda} toolchain installed at {home}\n  it is now preferred by fast-kernel probe / TileLang / CUDA C++ (override with FAST_KERNEL_CUDA_HOME)")
+        print(f"CUDA {args.cuda} toolchain installed at {home}\n  it is now preferred by fast-kernel probe and the CUDA C++ backend (override with FAST_KERNEL_CUDA_HOME)")
     elif args.action == "remove":
         print("removed" if remove_toolchain(args.cuda) else "nothing to remove")
     else:

@@ -9,10 +9,9 @@ capabilities  ->  trace  ->  attribute  ->  classify  ->  rank (headroom)  ->  P
 
 Device facts (name, compute capability, SMs, memory, L2, smem) plus measured numbers the classifier
 needs: device-to-device bandwidth (256 MB copy), bf16 and fp32 GEMM TFLOPS (4096^3), and launch
-latency (2000 tiny kernels). Then every backend compiles and runs a probe kernel: Triton, TileLang,
-CuTe DSL, CUDA C++ (torch `load_inline` with an auto-discovered nvcc), torch.compile, CUDA graphs,
-hub kernels. Failures are recorded with the first error lines and a `fix` hint — evidence, never a
-verdict. `fast-kernel toolchain install --cuda X.Y` installs a self-contained nvcc/CCCL/NVVM/runtime
+latency (2000 tiny kernels). Then every backend compiles and runs a probe kernel: CUDA C++ (torch
+`load_inline` with an auto-discovered nvcc — the implementation backend), CUDA graphs, hub kernels.
+Failures are recorded with the first error lines and a `fix` hint — evidence, never a verdict. `fast-kernel toolchain install --cuda X.Y` installs a self-contained nvcc/CCCL/NVVM/runtime
 wheel set when the system compiler is newer than torch's bundled nvcc supports.
 
 ## 2. Trace
@@ -59,8 +58,8 @@ PLAN.md and `fast-kernel ideas` deliberately show measured facts only — never 
 predicted speedup; the agent discovers the method itself. The catalogue below is used internally (for
 the experiment matrix and the dashboard) and is not rendered to the agent.
 
-`playbook.py` holds the catalogue: tier 0 structure (CUDA graphs, torch.compile, kernel-count
-reduction, weight pre-packing, dtype policy), tiers 1-2 block/memory tuning, tier 3 fusion (epilogues,
+`playbook.py` holds the catalogue: tier 0 structure (CUDA graphs, kernel-count reduction, weight
+pre-packing, dtype policy), tiers 1-2 block/memory tuning, tier 3 fusion (epilogues,
 implicit-GEMM conv, fused attention/norm/quantizer/elementwise), tier 4 advanced (split-K, persistent
 kernels, warp specialization), tier 5 architecture tuning, tier 6 kernel-specific tricks (indexing
 fusion, decode-step fusion, hub kernels). Each technique names its backends and the skill that

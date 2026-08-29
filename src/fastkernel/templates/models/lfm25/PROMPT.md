@@ -40,8 +40,8 @@ optimized model must generate exactly the same tokens as the original.
    (`uv sync --extra cuda`).
 3. `uv run fast-kernel init lfm25` (only if the campaign does not exist).
 4. `uv run fast-kernel probe` — measures this GPU (bandwidth, TFLOPS, launch latency) and compiles one
-   probe kernel per backend (Triton, TileLang, CuTe DSL, CUDA C++, torch.compile, CUDA graphs, hub
-   kernels) → `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
+   probe kernel per backend (CUDA C++ — the implementation backend — CUDA graphs, hub kernels) →
+   `capabilities.json`. A backend that fails to compile is fixed (`uv run fast-kernel toolchain
    install --cuda <version>`, `uv pip install ...`) and probed again — never recorded as a limitation.
 5. `uv run fast-kernel baseline` — experiment #0: the unmodified reference model passes its own five
    gates, is benchmarked with the fixed protocol (warm-up, clock ramp, median of N synchronised runs),
@@ -52,8 +52,8 @@ optimized model must generate exactly the same tokens as the original.
 8. The loop: `fast-kernel brief` (state, plateau streak, ranked targets with their measured memory, last experiments, insights) → PLAN.md / KNOWLEDGE.md for depth →
    `fast-kernel memory --target <id>` (what was already measured on this target: what worked, which
    failures not to repeat) → one hypothesis for the target with the most measured headroom
-   (share x (1 - roofline efficiency)); which technique and backend to use is yours to discover from the
-   measurements, nothing prescribes it → implement it only under `candidate/`
+   (share x (1 - roofline efficiency)); which technique to use is yours to discover from the measurements,
+   nothing prescribes it (the backend is CUDA C++) → implement it only under `candidate/`
    (`candidate/__init__.py: apply(model, ctx)`, kernels in `candidate/kernels/`) → self-test on the real
    shapes → `fast-kernel eval -m "<one line>" --technique <ids> --target <id>` → read the verdict →
    `fast-kernel note "<insight with numbers>"` → next. Each experiment builds on the accepted incumbent
@@ -61,14 +61,16 @@ optimized model must generate exactly the same tokens as the original.
 
 ## Discover, do not assume
 
-Nothing about the hardware or the model is given to you in advance and nothing constrains what you may
-try. Where the time goes is measured by `fast-kernel profile` on this machine; which backends compile is
+Nothing about the hardware or the model is given to you in advance, and no measurement is handed to you.
+Where the time goes is measured by `fast-kernel profile` on this machine; whether the toolchain builds is
 measured by `fast-kernel probe`; whether an idea helps is measured by `fast-kernel eval`. Every hypothesis
 comes from those numbers and from what earlier experiments taught (KNOWLEDGE.md, `fast-kernel memory`).
-Any technique and any backend may be tried in any order; ideas that failed here are facts about this
-model on this machine, recorded with numbers, never generalised. Never write a device or vendor name into
-notes, code or reports, and never conclude that something is unsupported — fix the environment, re-probe,
-or take another backend.
+Any technique may be tried in any order; ideas that failed here are facts about this model on this machine,
+recorded with numbers, never generalised. The one thing that is *not* yours to choose is the implementation
+backend: every kernel is hand-written CUDA C++ captured with CUDA graphs (stock torch and pre-built hub
+kernels stay legitimate answers), for the measured reasons in AGENTS.md. Never write a device or vendor name
+into notes, code or reports, and never conclude that something is unsupported — fix the environment and
+re-probe.
 
 ## Multi-agent structure (use it)
 

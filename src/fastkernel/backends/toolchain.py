@@ -7,8 +7,8 @@ accept the machine's host compiler (a newer nvcc minor version usually does). A 
     fast-kernel toolchain install --cuda 13.3      -> ~/.cache/fast-kernel/toolchains/cuda-13.3/nvidia/cu13
 
 `find_nvcc()` prefers installed toolchains (newest first) over the venv wheels and the system, so
-TileLang / CUDA C++ compile against a frontend that understands the host compiler while the kernels
-still run on torch's runtime (same major version).
+CUDA C++ compiles against a frontend that understands the host compiler while the kernels still run
+on torch's runtime (same major version).
 """
 from __future__ import annotations
 

@@ -30,7 +30,7 @@ def test_record_and_retrieve(tmp_path: Path, monkeypatch):
     campaign = Campaign(tmp_path / "c")
     target = {"id": "t_a", "category": "gemm", "boundness": "compute", "class": "Linear"}
     memory.record_outcome(campaign, memory.reflexion(
-        {"number": 1, "status": "keep", "primary_value": 5.0, "target": "t_a", "techniques": ["triton"],
+        {"number": 1, "status": "keep", "primary_value": 5.0, "target": "t_a", "techniques": ["epilogue-fusion"],
          "description": "fused", "_target_obj": target}, incumbent_value=10.0, minimize=True))
     memory.record_outcome(campaign, memory.reflexion(
         {"number": 2, "status": "crash", "primary_value": None, "target": "t_a", "techniques": ["cuda-cpp"],

@@ -1,8 +1,10 @@
 """CUDA C++ via torch.utils.cpp_extension.load_inline, with automatic nvcc discovery.
 
+This is the implementation backend: every kernel a candidate ships is compiled from here.
+
 nvcc is frequently *not* on PATH but *is* installed by pip (torch's cu13x wheels depend on
 `nvidia-cuda-nvcc`; it lives under site-packages/nvidia/cu13/bin/nvcc or nvidia/cuda_nvcc/bin/nvcc).
-`ensure_cuda_home()` finds it and exports CUDA_HOME/PATH so torch, TileLang and CuTe can use it.
+`ensure_cuda_home()` finds it and exports CUDA_HOME/PATH so torch's JIT compiler can use it.
 """
 from __future__ import annotations
 

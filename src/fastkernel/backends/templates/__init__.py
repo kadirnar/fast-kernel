@@ -1,1 +1,1 @@
-"""Starter kernels the agent can copy into candidate/kernels/ (all verified against torch)."""
+"""Starter kernels the agent can copy into candidate/kernels/ (CUDA C++, verified against torch)."""

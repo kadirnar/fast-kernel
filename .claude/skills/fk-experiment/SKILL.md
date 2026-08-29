@@ -26,21 +26,23 @@ for every insight, `uv run fast-kernel memory --target <id>` for the full histor
 ## 2. Choose one hypothesis
 
 Score = share × (1 − roofline efficiency), from `brief`. A streak of 5+ in the brief means PLATEAU: change
-the approach, the backend or the target before anything else. Tie-breaks: untried > larger measured share >
+the approach or the target before anything else (the backend is fixed — see step 3). Tie-breaks: untried > larger measured share >
 lower SOL > smaller diff. The technique itself is never prescribed — discover it from the measurements. A focus given as `--target/--technique` wins unless it is
 clearly exhausted. Write the hypothesis as one line before touching code:
 `"<what> for <target class> via <technique/backend>; expect ~<x>% end-to-end because <share/boundness>"`.
 
-Do not pick: an identical failed edit; a technique whose skill you have not read for this backend;
-anything that changes GOAL.md's policy.
+Do not pick: an identical failed edit; a technique whose skill you have not read; anything that changes
+GOAL.md's policy.
 
 ## 3. Implement (candidate/ only)
 
 - Kernel in `candidate/kernels/<name>.py`, integration in `candidate/__init__.py: apply(model, ctx)`
   (module swap or forward monkeypatch; keep signatures), `report()` evidence (`active`, `invocations`).
-- Start from `uv run fast-kernel templates` (Triton rmsnorm / silu*mul / autotuned GEMM with epilogue /
-  causal depthwise conv1d / codebook argmin; CUDA C++; TileLang GEMM; CuTe elementwise) and
-  `fastkernel.backends.graphs.Graphed` / `ShapeBucketedGraphs`.
+- **The implementation backend is CUDA C++** (`/cuda-cpp-kernels`), written with
+  `fastkernel.backends.cuda_cpp.load_cuda_inline`, captured with `/cuda-graphs`
+  (`fastkernel.backends.graphs.Graphed` / `ShapeBucketedGraphs`). Leaving an op on stock torch, or taking a
+  pre-built CUDA kernel from `/hub-kernels`, are legitimate answers. Do not write Triton, TileLang or CuTe
+  kernels — see AGENTS.md for the measurements behind that. Start from `uv run fast-kernel templates`.
 - Numerics per `/numerical-verification`: fp32 accumulation, fixed-order reductions, exact argmin via
   coarse pass + fp32 re-rank, reference tie-breaks and padding. Strict policy = identical outputs.
 - Self-test before eval: a 20-line script in `/tmp` comparing the kernel with the torch reference on

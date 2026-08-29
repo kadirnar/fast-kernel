@@ -142,5 +142,5 @@ def probe_all(names: list[str] | None = None, compile_test: bool = True) -> dict
 
 
 def env_summary() -> dict[str, Any]:
-    keys = ["CUDA_HOME", "CUDA_PATH", "TRITON_CACHE_DIR", "TORCH_CUDA_ARCH_LIST", "TILELANG_TARGET", "PATH"]
+    keys = ["CUDA_HOME", "CUDA_PATH", "TORCH_CUDA_ARCH_LIST", "NVCC_APPEND_FLAGS", "PATH"]
     return {k: os.environ.get(k) for k in keys if os.environ.get(k)}
