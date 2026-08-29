@@ -163,6 +163,29 @@ class Campaign:
                 break
         return out
 
+    def streak(self) -> dict[str, Any]:
+        """How long the campaign has gone without a measured improvement -- the plateau signal.
+
+        Counts consecutive finished experiments since the last keep/bank (a re-measurement of the
+        incumbent is neither). `on_target` is the length of the run of *that same target* at the tail,
+        so the agent can tell "this target is exhausted" from "the search as a whole has stalled"."""
+        experiments = [e for e in self.store.list_experiments() if e.get("status") not in ("running", "remeasure", None)]
+        run: list[dict[str, Any]] = []
+        for e in reversed(experiments):
+            if e.get("status") in ("keep", "bank", "baseline"):
+                break
+            run.append(e)
+        last_target = run[0].get("target") if run else None
+        on_target = 0
+        for e in run:
+            if last_target and e.get("target") == last_target:
+                on_target += 1
+            else:
+                break
+        classes = [e.get("failure_class") for e in run if e.get("failure_class")]
+        return {"no_improvement": len(run), "target": last_target, "on_target": on_target,
+                "failure_classes": classes[:6], "last_status": experiments[-1].get("status") if experiments else None}
+
     # ---- control flags -----------------------------------------------------------------
     def flag(self, name: str) -> Path:
         return self.state_dir / name

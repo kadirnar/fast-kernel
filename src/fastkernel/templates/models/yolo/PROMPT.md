@@ -17,8 +17,7 @@ same boxes, confidences and classes as the original.
 1. `README.md`, `AGENTS.md` (the research program — every rule below is binding) and `CLAUDE.md`.
 2. `.claude/agents/*.md` (the roles you may delegate to) and these skills in `.claude/skills/`:
    `fk-optimize`, `fk-experiment`, `fk-parallel`, `hotspot-analysis`, `numerical-verification`, and the
-   backend skills `cuda-graphs`, `triton-kernels`, `tilelang-kernels`, `cute-dsl-kernels`,
-   `cuda-cpp-kernels`, `torch-compile`, `hub-kernels`.
+   backend skills `cuda-cpp-kernels` (the implementation backend), `cuda-graphs`, `hub-kernels`.
 3. The harness you must never edit but must understand: `src/fastkernel/harness/gates.py` (the five
    correctness stages), `src/fastkernel/harness/evaluate.py` (keep/revert logic), `src/fastkernel/harness/run.py`,
    `src/fastkernel/profiling/` (how targets are ranked by measured headroom), `src/fastkernel/memory.py`
@@ -50,7 +49,7 @@ same boxes, confidences and classes as the original.
 6. `uv run fast-kernel dashboard --root campaigns` in the background — the live graph of every
    experiment (it prints the URL; tell me once).
 7. `uv run fast-kernel loop start` — the Stop hook keeps this session iterating.
-8. The loop: `fast-kernel status --brief` → `fast-kernel ideas` → read PLAN.md / KNOWLEDGE.md →
+8. The loop: `fast-kernel brief` (state, plateau streak, ranked targets with their measured memory, last experiments, insights) → PLAN.md / KNOWLEDGE.md for depth →
    `fast-kernel memory --target <id>` (what was already measured on this target: what worked, which
    failures not to repeat) → one hypothesis for the target with the most measured headroom
    (share x (1 - roofline efficiency)); which technique and backend to use is yours to discover from the

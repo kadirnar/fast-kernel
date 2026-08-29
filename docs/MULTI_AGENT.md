@@ -12,7 +12,11 @@
 | `fk-reviewer` | reading the diff before an expensive eval | editing files |
 | `fk-librarian` | references, templates, prior experiments | editing files |
 
-The harness is the referee for all of them: acceptance is computed, not argued.
+The harness is the referee for all of them: acceptance is computed, not argued. It is also the only thing
+that touches the GPU for a measurement: every `fast-kernel eval` / `baseline` / `profile` / `probe` holds a
+machine-wide GPU lock (`~/.cache/fast-kernel/locks/gpu-<devices>.lock`) for its harness run, so any number
+of agents can think, write and build concurrently while the timings never overlap. The wait is logged as a
+`gpu.waited` event and does not count against the experiment's timeout; `FK_GPU_LOCK=0` disables it.
 
 ## Three ways to keep going
 
@@ -29,7 +33,9 @@ nothing — and then stop themselves. A human may stop earlier, but is never ask
    experiment with AGENTS.md appended to the system prompt, an allow-list of tools, and stream-json
    output that feeds the dashboard's agents panel and event log. `fast-kernel pause|resume|stop`.
    Headless sessions carry `FK_HEADLESS=1`, so the Stop hook yields to the driver's iteration count
-   instead of forcing the session to continue.
+   instead of forcing the session to continue. A driver or worker whose last 6 iterations recorded no
+   experiment at all (the agent never reached `fast-kernel eval`) stops with a `loop.stalled` /
+   `worker.stalled` event rather than spending money on a broken session.
 
 ## In-session parallel engineers (`/fk-parallel`)
 
@@ -40,7 +46,9 @@ in), spawns one `fk-kernel-engineer` per worktree, and each engineer ends with
 `fast-kernel propose -m "..." --technique ... --target ...` — which commits its `candidate/` changes and
 writes the diff plus metadata to the main campaign's `.fast-kernel/inbox/`. The orchestrator then runs
 `fast-kernel inbox`: every proposal is applied on the *current* incumbent, measured by the full harness
-and kept or reverted, one after another. Patches that no longer apply are rejected with an event.
+and kept or reverted, one after another. When the incumbent moved under a proposal, the inbox tries a
+3-way merge from the blob ids recorded in the patch (worktrees share the object store) before giving up;
+only genuinely overlapping changes are rejected — with an event naming the commit to rebase on.
 
 ## Headless parallel workers (`fast-kernel auto --agents N [--islands K]`)
 

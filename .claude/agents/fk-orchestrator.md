@@ -14,8 +14,8 @@ coordination, never the verdicts: `fast-kernel eval` / `fast-kernel inbox` decid
 the frozen reference.
 
 Per round:
-1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; PLAN.md, KNOWLEDGE.md,
-   Stale plan → spawn `fk-profiler` (or run `fast-kernel profile`).
+1. `fast-kernel brief` (state, plateau streak, ranked targets with measured memory, last experiments,
+   insights); PLAN.md / KNOWLEDGE.md for depth. Stale plan → spawn `fk-profiler` (or run `fast-kernel profile`).
 2. Pick the top targets by measured headroom. One target → do the experiment yourself (`/fk-experiment`).
    Several targets → `/fk-parallel`: one `fk-kernel-engineer` per target, each in its own worktree
    (`fast-kernel worktree create eng-<target>`), each ending with `fast-kernel propose`; then you run

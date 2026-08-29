@@ -12,7 +12,7 @@ from typing import Any
 from . import __version__, knowledge, results
 from .campaign import Campaign
 from .frontmatter import render_frontmatter, split_frontmatter
-from .util import fmt, read_json, run, which, write_json
+from .util import GpuLock, fmt, read_json, run, which, write_json
 
 TEMPLATES = Path(__file__).parent / "templates" / "models"
 
@@ -79,14 +79,16 @@ def cmd_probe(args) -> None:
     ensure_cuda_home()
     campaign = Campaign.find() if not args.campaign else Campaign(Path(args.campaign))
     print("probing device ...", flush=True)
-    device = device_capabilities(microbench=not args.no_microbench)
+    with GpuLock(timeout=600):
+        device = device_capabilities(microbench=not args.no_microbench)
     print(f"  {device.get('name')} sm_{str(device.get('compute_capability', '')).replace('.', '')} {device.get('sm_count')} SMs "
           f"{device.get('total_memory_gb')} GB | torch {device.get('torch')} cuda {device.get('cuda')}")
     if device.get("measured_bandwidth_gbs"):
         print(f"  measured: {device['measured_bandwidth_gbs']} GB/s, bf16 {device.get('measured_bf16_tflops')} TFLOPS, "
               f"fp32 {device.get('measured_fp32_tflops')} TFLOPS, launch latency {device.get('launch_latency_us')} us")
     print("probing backends ...", flush=True)
-    backends = probe_all(compile_test=not args.no_compile)
+    with GpuLock(timeout=600):
+        backends = probe_all(compile_test=not args.no_compile)
     for name, info in backends.items():
         state = "READY" if info.get("compiled") else ("importable" if info.get("available") else "missing")
         print(f"  {name:14s} {state:10s} v{info.get('version') or '?':10s} {('- ' + str(info.get('error'))[:110]) if info.get('error') else ''}")
@@ -112,7 +114,8 @@ def cmd_profile(args) -> None:
     if args.workload:
         argv += ["--workloads", args.workload]
     print("profiling current candidate ...", flush=True)
-    result = run(argv, cwd=campaign.root, timeout=campaign.goal.bench.timeout_seconds, env={"PYTHONUNBUFFERED": "1"})
+    with GpuLock(timeout=campaign.goal.bench.timeout_seconds):
+        result = run(argv, cwd=campaign.root, timeout=campaign.goal.bench.timeout_seconds, env={"PYTHONUNBUFFERED": "1"})
     (out / "run.log").write_text(result.stdout + "\n" + result.stderr, encoding="utf-8")
     if not result.ok:
         print(result.stdout[-3000:], result.stderr[-3000:])
@@ -208,6 +211,7 @@ def cmd_status(args) -> None:
     if inc.get("banked"):
         print(f"  banked: {inc['banked']} improvement(s) committed in candidate/ but too small to promote yet; "
               f"the next experiment builds on them and promotes the pile once it clears the threshold")
+    print("  " + _streak_line(campaign.streak()))
     if last:
         print(f"  last: #{last['number']} [{last['status']}] {last.get('description', '')[:80]} -> {last.get('reason', '')[:100]}")
     beam = campaign.beam(3)
@@ -220,6 +224,79 @@ def cmd_status(args) -> None:
     if not args.brief:
         for line in knowledge.read_insights(campaign.knowledge_path, 5):
             print(f"  insight: {line[:140]}")
+
+
+def _streak_line(streak: dict[str, Any]) -> str:
+    n = streak.get("no_improvement") or 0
+    if n == 0:
+        return "streak: the last finished experiment improved the incumbent"
+    line = f"streak: {n} consecutive experiment(s) without a measured improvement"
+    if streak.get("target") and streak.get("on_target"):
+        line += f" ({streak['on_target']} in a row on target {streak['target']})"
+    if streak.get("failure_classes"):
+        line += f"; failure classes seen: {', '.join(dict.fromkeys(streak['failure_classes']))}"
+    if n >= 5:
+        line += (" -- PLATEAU: change the approach, the backend or the target; widen the scope (combine kept kernels, "
+                 "remove copies between them); re-read the top kernels")
+    return line
+
+
+def cmd_brief(args) -> None:
+    """Everything one iteration needs to start, on one screen: the state, the plateau signal, the ranked
+    targets with their measured memory, the last experiments and the latest insights. Reading this replaces
+    re-reading a 50 KB KNOWLEDGE.md every iteration; the long files stay available for depth."""
+    from . import memory as _memory
+    campaign = _campaign(args)
+    summary = campaign.summary()
+    inc = summary["incumbent"]
+    goal = campaign.goal
+    if inc.get("anchor_ratio"):
+        unc = inc.get("anchor_uncertainty") or 0.0
+        threshold = max(summary["min_improvement"], unc * (2 ** 0.5))
+        measure = f"anchored {fmt(inc['anchor_ratio'], 4)}x vs reference +/- {fmt(unc * 100, 2)}%, keep threshold ~{fmt(threshold * 100, 2)}%"
+    else:
+        measure = "no anchor yet: run `fast-kernel eval --force` on a clean tree once"
+    print(f"campaign {summary['name']} ({summary['model']}) | {goal.target_metric} {goal.direction} | loop {'ACTIVE' if summary['loop_active'] else 'off'}"
+          f"{' PAUSED' if summary['paused'] else ''} | {summary['experiments']} experiments {summary['counts']}")
+    print(f"incumbent #{inc.get('number')} {goal.target_metric}={fmt(inc.get('value'))} (baseline {fmt(summary.get('baseline_value'))}, "
+          f"{fmt(summary.get('speedup_vs_baseline'), 3)}x) | {measure}"
+          + (f" | {inc['banked']} banked win(s) in candidate/ -- build on them" if inc.get("banked") else ""))
+    print(_streak_line(campaign.streak()))
+    hotspots = read_json(campaign.hotspots_path, {}) or {}
+    targets = _refresh_statuses(campaign, hotspots.get("targets") or [])
+    summ = hotspots.get("summary") or {}
+    if targets:
+        print(f"profile after exp #{hotspots.get('experiment')}: wall {fmt(summ.get('wall_ms'))} ms, {summ.get('kernel_count')} kernels, "
+              f"GPU busy {fmt((summ.get('gpu_busy_ratio') or 0) * 100, 3)}%"
+              f" -- targets by measured headroom = share x (1 - SOL); technique/backend are yours to discover:")
+        for t in targets[: args.targets]:
+            sol = t.get("sol_efficiency")
+            sol_str = f"SOL {sol * 100:.0f}%" if sol is not None else "SOL n/a"
+            print(f"  [{t['rank']}] {t['title'][:46]:46s} share {t['fraction'] * 100:5.1f}%  {sol_str:8s} {t.get('kernel_count', 0):>4} kernels  "
+                  f"{t.get('attempts', 0)} tried/{t.get('accepted', 0)} acc  id={t['id']}")
+            mem = _memory.retrieve(campaign, t, k=2)
+            for e in (mem.get("similar") or [])[-2:]:
+                print(f"        memory: exp #{e.get('number')} [{e.get('status')}] {str(e.get('outcome'))[:90]}")
+            for e in (mem.get("repair_chain") or [])[-1:]:
+                print(f"        repair: exp #{e.get('number')} failed with {e.get('failure_class')} -- do not repeat")
+    else:
+        print("no hotspots yet: run `fast-kernel baseline` (or `fast-kernel profile`)")
+    exps = campaign.store.list_experiments(limit=args.n)
+    if exps:
+        print("last experiments:")
+        for e in exps:
+            delta = e.get("improvement")
+            delta_s = f"{delta * 100:+.2f}%" if isinstance(delta, (int, float)) else "-"
+            print(f"  #{e['number']:<3} {e['status']:9s} {fmt(e.get('primary_value')):>9} {delta_s:>8}  {e.get('description', '')[:78]}")
+            if e.get("status") in ("crash", "error") or (e.get("gates") or {}).get("passed") is False:
+                print(f"        -> {str(e.get('reason', ''))[:110]}")
+    insights = knowledge.read_insights(campaign.knowledge_path, args.insights)
+    if insights:
+        print("latest insights (KNOWLEDGE.md has all of them):")
+        for line in insights:
+            print(f"  - {line[:150]}")
+    print("next: one hypothesis for the target with the most measured headroom -> edit candidate/ only -> "
+          "`fast-kernel eval -m \"...\" --technique <ids> --target <id>` -> `fast-kernel note \"...\"`")
 
 
 def cmd_history(args) -> None:
@@ -434,7 +511,7 @@ def cmd_doctor(args) -> None:
                        + (f" ({torch.cuda.get_device_name(0)})" if torch.cuda.is_available() else "")))
     except ImportError:
         checks.append(("torch", "MISSING -> uv sync --extra cuda"))
-    for mod, extra in (("triton", "cuda"), ("transformers", "cuda"), ("tilelang", "tilelang"), ("cutlass", "cute"), ("kernels", "hub"),
+    for mod, extra in (("transformers", "cuda"), ("kernels", "hub"),
                        ("ultralytics", "yolo"), ("liquid_audio", "audio"), ("claude_agent_sdk", "agent")):
         try:
             m = __import__(mod)
@@ -569,6 +646,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.add_argument("--brief", action="store_true")
     p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("brief", help="one screen with everything an iteration needs: state, plateau signal, ranked targets + memory, last experiments, insights")
+    p.add_argument("--targets", type=int, default=6)
+    p.add_argument("-n", type=int, default=6, help="last experiments to list")
+    p.add_argument("--insights", type=int, default=6)
+    p.set_defaults(fn=cmd_brief)
 
     p = sub.add_parser("history", help="experiment ledger")
     p.add_argument("-n", type=int, default=20)

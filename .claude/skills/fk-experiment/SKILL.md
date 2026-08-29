@@ -13,17 +13,20 @@ Campaign: `$ARGUMENTS` if a directory was given, else `uv run fast-kernel resolv
 ## 1. Read the state (2 minutes, no shortcuts)
 
 ```bash
-uv run fast-kernel status --brief          # incumbent, speedup, threshold, loop state
-uv run fast-kernel ideas                    # hotspots by measured headroom (share x (1 - SOL)), with what was tried
-uv run fast-kernel history -n 5             # what just happened and why
+uv run fast-kernel brief                    # one screen: incumbent + threshold, plateau streak, ranked targets
+                                            # (share, SOL, tried/accepted) with their measured memory, last
+                                            # experiments with reasons, latest insights
 ```
-Then read `PLAN.md` (regenerate with `uv run fast-kernel profile` if it predates the incumbent),
-`KNOWLEDGE.md` (insights first) and, if the
-last experiment failed, `uv run fast-kernel show <N> --log`.
+That is the whole per-iteration read. Go deeper only where the brief points: `PLAN.md` for shapes and the
+top-kernels table (regenerate with `uv run fast-kernel profile` if it predates the incumbent), `KNOWLEDGE.md`
+for every insight, `uv run fast-kernel memory --target <id>` for the full history of one target, and
+`uv run fast-kernel show <N> --log` when the last experiment failed. `fast-kernel status --brief`,
+`ideas` and `history` still exist for their individual views.
 
 ## 2. Choose one hypothesis
 
-Score = share × (1 − roofline efficiency), from `ideas`. Tie-breaks: untried > larger measured share >
+Score = share × (1 − roofline efficiency), from `brief`. A streak of 5+ in the brief means PLATEAU: change
+the approach, the backend or the target before anything else. Tie-breaks: untried > larger measured share >
 lower SOL > smaller diff. The technique itself is never prescribed — discover it from the measurements. A focus given as `--target/--technique` wins unless it is
 clearly exhausted. Write the hypothesis as one line before touching code:
 `"<what> for <target class> via <technique/backend>; expect ~<x>% end-to-end because <share/boundness>"`.

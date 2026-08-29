@@ -16,7 +16,7 @@ from typing import Any
 
 from ..campaign import Campaign
 from ..util import now_iso, read_json, run
-from .driver import run_iteration
+from .driver import MAX_IDLE_ITERATIONS, _progress_since, run_iteration
 from .prompts import iteration_prompt
 
 
@@ -110,9 +110,13 @@ def run_worker(main: Campaign, name: str, *, iterations: int | None = None, mode
     os.environ["FAST_KERNEL_MAIN_CAMPAIGN"] = str(main.root)
     main.store.set_agent(name, "running", f"worktree {wt.root}")
     done = 0
+    idle = 0
     try:
         while iterations is None or done < iterations:
             if main.has_flag("stop"):
+                break
+            if idle >= MAX_IDLE_ITERATIONS:
+                main.store.event("worker.stalled", name=name, idle=idle, completed=done)
                 break
             if main.has_flag("paused"):
                 time.sleep(2)
@@ -137,7 +141,9 @@ def run_worker(main: Campaign, name: str, *, iterations: int | None = None, mode
             run_iteration(wt, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode, agent_name=name)
             done += 1
             latest = wt.store.list_experiments(limit=1)
-            if latest and latest[0].get("number", -1) >= before and latest[0].get("status") in ("keep", "bank"):
+            progress = _progress_since(latest, before)
+            idle = idle + 1 if progress == "nothing" else 0
+            if progress == "improved":
                 submit_proposal(main, wt, latest[0], name)
                 main.store.set_agent(name, "running", f"proposal submitted from #{latest[0]['number']}")
             if target:

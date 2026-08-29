@@ -16,14 +16,24 @@ def iteration_prompt(campaign_root: Path, *, target: str | None = None, techniqu
     return f"""Run exactly ONE fast-kernel experiment in the campaign at `{campaign_root}` and then stop.{who}
 {f'This is loop iteration {iteration}.' if iteration is not None else ''}
 Follow AGENTS.md (the research program) strictly:
-1. `cd {campaign_root}` then read `fast-kernel status --brief`, `fast-kernel ideas`, PLAN.md, KNOWLEDGE.md, the last
-   3 experiments (`fast-kernel history -n 3`), and `fast-kernel memory --target <id>` for the measured history of the
-   target you pick (what was tried, what worked, what failed). Never repeat an identical failed edit.
+1. `cd {campaign_root}` then read `fast-kernel brief`: incumbent and threshold, the plateau streak, the ranked targets
+   with their measured memory (what was tried, what worked, what failed), the last experiments and the latest insights.
+   Read PLAN.md (shapes, top kernels), KNOWLEDGE.md and `fast-kernel memory --target <id>` only where the brief
+   points you. Never repeat an identical failed edit.
 2. Pick ONE target -- the one with the most measured headroom (biggest share of GPU time / most launches).
-   The technique and backend are yours to discover from the profile, the top kernels, KNOWLEDGE.md and the
-   backend skills; nothing tells you which method to use or how much it will speed up. Never repeat an
-   identical failed edit.
-3. Implement it ONLY under `candidate/` (candidate/__init__.py `apply(model, ctx)` and candidate/kernels/*). Never edit
+   The technique is yours to discover from the profile, the top kernels and KNOWLEDGE.md; nothing tells you
+   which method to use or how much it will speed up. Never repeat an identical failed edit.
+   THE IMPLEMENTATION BACKEND IS CUDA C++ (`/cuda-cpp-kernels`), with `/cuda-graphs` for capture and stock
+   torch ops where they already win. Do not write Triton, TileLang or CuTe kernels. This is a measured
+   policy, not a preference: what is left in a mature campaign is fusion granularity -- a whole block or a
+   whole quantizer stage in ONE launch so its intermediates never reach global memory -- and a tile DSL's
+   automatic pipeline will not give you that. `cp.async` is a DMA and cannot transform a value in flight, so
+   an activation function folded into a staged load costs a barrier inside the pipeline that exists to hide
+   latency; that was measured at 3.6x. Rank by ABSOLUTE excess over a floor computed from shapes you read out
+   of the module, never by ratio, and check any two-term fit's intercept against an empty kernel at the same
+   grid before believing it.
+3. Implement it ONLY under `candidate/` (candidate/__init__.py `apply(model, ctx)` and candidate/kernels/*),
+   in CUDA C++ via `fastkernel.backends.cuda_cpp.load_cuda_inline`. Never edit
    GOAL.md, spec.py, experiments/, results.tsv or anything under the fastkernel package. If a kernel needs a library that
    is not installed, install it (`uv pip install ...`) and continue -- never stop to ask a human for it.
 4. Run `fast-kernel eval -m "<one-line hypothesis>" --technique <ids> --target <id>` (add `--simpler` only when the change

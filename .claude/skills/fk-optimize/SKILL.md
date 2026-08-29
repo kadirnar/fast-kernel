@@ -47,8 +47,8 @@ GPU-busy ratio and the top three targets from PLAN.md — that is the user's fir
 
 Each iteration is the `/fk-experiment` procedure, in full:
 
-1. `fast-kernel status --brief`, `fast-kernel ideas`, `fast-kernel history -n 5`; read PLAN.md,
-   KNOWLEDGE.md.
+1. `fast-kernel brief` (state, plateau streak, ranked targets with measured memory, last experiments,
+   insights); PLAN.md / KNOWLEDGE.md / `fast-kernel memory --target <id>` only for depth.
 2. One hypothesis for the target with the most measured headroom = share × (1 − roofline efficiency).
    Prefer: untried > larger measured share > lower SOL. Never resubmit an identical failed edit.
 3. Implement only under `candidate/`. Reuse starters (`fast-kernel templates`) and
@@ -63,8 +63,10 @@ Each iteration is the `/fk-experiment` procedure, in full:
 
 **Run targets in parallel by default.** As soon as `PLAN.md` shows two or more targets with real
 headroom, start one `fk-kernel-engineer` per target (or `fast-kernel auto --agents 3 --islands 2`)
-instead of walking the list serially — the experiments are independent and each costs minutes. Keep
-the serial loop for when one target dominates or the next step depends on the last result.
+instead of walking the list serially — the experiments are independent and each costs minutes. The GPU
+is never shared by two measurements: every harness run holds a machine-wide lock (the wait is not charged
+to the experiment), so concurrent engineers cannot contaminate each other's verdicts. Keep the serial loop
+for when one target dominates or the next step depends on the last result.
 
 Delegate when it is faster: `fk-profiler` (re-rank after a surprising result), `fk-kernel-engineer`
 (a kernel for one target), `fk-verifier` (a failed gate), `fk-reviewer` (before an expensive eval),

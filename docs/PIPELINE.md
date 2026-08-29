@@ -29,6 +29,12 @@ time, kernel count, top ops, plus wall time, GPU-busy time (union of kernel inte
 Wall time is re-measured without the profiler; `gpu_busy_ratio < 0.6` flags a launch/overhead-bound
 workload.
 
+Shapes are recorded by forward hooks on a first call that runs under the same attribution context as the
+profiled call (`graphs.eager_mode`): a candidate that replays CUDA graphs never enters `forward()`, so
+without that the hooks would not fire, no target would have shapes, and every SOL would read 0 %. A
+target whose kernels cannot be tied to any shape (non-forward methods, launches from candidate code)
+reports SOL `n/a` and is ranked by raw share, never as "0 % of peak".
+
 ## 3. Classify (roofline)
 
 Per module: FLOPs and bytes estimated from recorded shapes and parameters (Linear, Conv/ConvTranspose,
@@ -65,8 +71,18 @@ documents how to do it.
 Gates (`harness/gates.py`): smoke, shapes, numerical (spec-specific: exact codes, top-1 agreement,
 box tolerances, allclose), determinism (candidate vs itself), edge (short/odd/batched inputs). Benchmark
 (`harness/bench.py`): warm-up, 1 s clock ramp, N CUDA-synchronised repeats, median/min/p90/std, peak
-VRAM, derived rtf / tokens/s / fps. Decision (`harness/evaluate.py`): crash -> revert; gates FAIL ->
-revert; improvement >= max(`min_improvement`, baseline noise floor) -> keep; otherwise revert unless
-`--simpler`. Every path records results.tsv, KNOWLEDGE.md, SQLite events, `experiments/NNNN-*/` and one
-structured reflexion in `.fast-kernel/memory.jsonl` (measured delta, verdict, failure class) that
-`fast-kernel memory --target <id>` retrieves for the next iteration.
+VRAM, derived rtf / tokens/s / fps — plus the **anchored comparison** that decides the verdict: the
+reference model and the candidate timed interleaved in one process, order alternating, ratio of ratios
+against the incumbent's own anchor (`compare_callables`). It is sequential: after the first batch of
+`bench.anchor_pairs` pairs the harness asks whether the verdict is settled (the gain further than its
+combined uncertainty from both boundaries, 0 and the keep threshold); if not it keeps adding batches up to
+`bench.anchor_max_pairs`. A clear win or loss costs one batch; only borderline candidates are measured
+longer. Decision (`harness/evaluate.py`): crash -> revert; gates FAIL -> revert; improvement >=
+max(`min_improvement`, combined uncertainty) -> keep; improvement > 0 below that -> **bank** (commit,
+leave in `candidate/`, incumbent unchanged, up to `bench.max_banked`); otherwise revert unless
+`--simpler`. The whole harness subprocess runs under a machine-wide GPU lock (`util.GpuLock`, keyed by
+`CUDA_VISIBLE_DEVICES`), so parallel agents never measure on top of each other; the wait is recorded as
+a `gpu.waited` event and is not charged to the timeout. Every path records results.tsv, KNOWLEDGE.md,
+SQLite events, `experiments/NNNN-*/` and one structured reflexion in `.fast-kernel/memory.jsonl`
+(measured delta, verdict, failure class) that `fast-kernel memory --target <id>` and `fast-kernel brief`
+retrieve for the next iteration.

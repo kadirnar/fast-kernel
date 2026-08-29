@@ -25,6 +25,9 @@ from .prompts import iteration_prompt
 # After this many consecutive experiments with no accepted improvement the optimization is treated as
 # exhausted and the autonomous loop stops itself -- it never asks a human whether to keep going.
 CONVERGE_AFTER = 15
+# Consecutive iterations that produced no experiment at all (the agent never reached `fast-kernel eval`)
+# after which a headless driver or worker stops instead of spending money on a broken session.
+MAX_IDLE_ITERATIONS = 6
 
 DEFAULT_ALLOWED_TOOLS = [
     "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "LS",
@@ -188,16 +191,16 @@ def process_inbox(campaign: Campaign, *, quiet: bool = False) -> list[dict[str, 
             if not quiet:
                 print("inbox: candidate/ has uncommitted changes; skipping proposals until it is clean")
             break
-        check = run(["git", "apply", "--check", str(patch_path)], cwd=campaign.root)
-        if not check.ok:
+        applied = _apply_proposal(campaign, patch_path)
+        if applied != "ok":
             failed_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(patch_path), failed_dir / patch_path.name)
             shutil.move(str(meta_path), failed_dir / meta_path.name)
-            campaign.store.event("inbox.rejected", worker=meta.get("worker"), reason="patch does not apply on the incumbent",
-                                 description=meta.get("description"))
+            campaign.store.event("inbox.rejected", worker=meta.get("worker"), reason=applied, description=meta.get("description"))
+            if not quiet:
+                print(f"inbox: rejected {meta.get('worker')}: {applied}")
             processed.append({"meta": meta, "status": "conflict"})
             continue
-        run(["git", "apply", str(patch_path)], cwd=campaign.root)
         record = run_experiment(campaign, f"[{meta.get('worker', 'worker')}] {meta.get('description', 'proposal')}",
                                 techniques=meta.get("techniques") or [], target=meta.get("target"), agent=meta.get("worker"), quiet=quiet)
         done_dir.mkdir(parents=True, exist_ok=True)
@@ -205,6 +208,41 @@ def process_inbox(campaign: Campaign, *, quiet: bool = False) -> list[dict[str, 
         shutil.move(str(meta_path), done_dir / meta_path.name)
         processed.append({"meta": meta, "status": (record or {}).get("status", "error")})
     return processed
+
+
+def _apply_proposal(campaign: Campaign, patch_path: Path) -> str:
+    """Apply a worker's patch on the current incumbent; "ok" or the reason it could not be.
+
+    Proposals are diffed against the incumbent the worker branched from. When another proposal was
+    kept in the meantime the incumbent moved, and a plain apply fails even though the two changes
+    touch different hunks. Worktrees share the campaign's object store, so a 3-way merge can resolve
+    that case from the recorded blob ids; only a genuine overlap is rejected, and the tree is left
+    clean so the next proposal starts from the incumbent."""
+    if run(["git", "apply", "--check", str(patch_path)], cwd=campaign.root).ok:
+        run(["git", "apply", str(patch_path)], cwd=campaign.root)
+        return "ok"
+    merged = run(["git", "apply", "--3way", str(patch_path)], cwd=campaign.root)
+    unmerged = campaign.git("diff", "--name-only", "--diff-filter=U", "--", "candidate")
+    if merged.ok and not unmerged:
+        # --3way stages what it merged; the harness diffs the working tree against HEAD, so unstage
+        campaign.git("reset", "-q", "--", "candidate")
+        return "ok"
+    campaign.restore_candidate()
+    return ("patch does not apply on the incumbent (the incumbent moved and the changes overlap): rebase the worktree on "
+            f"{campaign.head()} and re-propose")
+
+
+def _progress_since(experiments: list[dict[str, Any]], before: int) -> str:
+    """What one iteration produced: 'improved' (keep/bank), 'tried' (ran, not accepted), 'remeasure' or 'nothing'."""
+    last = experiments[-1] if experiments else {}
+    if last.get("number", -1) < before:
+        return "nothing"
+    status = last.get("status")
+    if status in ("keep", "bank"):
+        return "improved"
+    if status == "remeasure":
+        return "remeasure"
+    return "tried"
 
 
 def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | None = None, max_turns: int = 80,
@@ -222,6 +260,7 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
     store.event("loop.started", mode="auto", agents=agents, iterations=iterations, model=model)
     done = 0
     no_keep = 0
+    idle = 0
     try:
         while True:
             if campaign.has_flag("stop"):
@@ -230,6 +269,11 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
             if no_keep >= CONVERGE_AFTER:
                 print(f"optimization exhausted: {CONVERGE_AFTER} consecutive experiments with no accepted improvement; stopping.")
                 store.event("loop.converged", mode="auto", no_keep=no_keep, completed=done)
+                break
+            if idle >= MAX_IDLE_ITERATIONS:
+                print(f"stalled: {MAX_IDLE_ITERATIONS} consecutive iterations recorded no experiment (the agent never reached "
+                      f"`fast-kernel eval`); stopping instead of spending more. Check `.fast-kernel/` events and the last iteration's result.")
+                store.event("loop.stalled", mode="auto", idle=idle, completed=done)
                 break
             if campaign.has_flag("paused"):
                 time.sleep(2.0)
@@ -252,12 +296,12 @@ def run_auto(campaign: Campaign, *, iterations: int | None = None, model: str | 
             before = store.next_experiment_number()
             prompt = iteration_prompt(campaign.root, iteration=before)
             summary = run_iteration(campaign, prompt=prompt, model=model, max_turns=max_turns, permission_mode=permission_mode)
-            experiments = store.list_experiments()
-            last = experiments[-1] if experiments else {}
-            if last.get("number", -1) >= before and last.get("status") in ("keep", "bank"):
+            progress = _progress_since(store.list_experiments(), before)
+            if progress == "improved":
                 no_keep = 0    # a bank is a measured improvement too, just too small to promote yet
-            elif last.get("number", -1) >= before and last.get("status") != "remeasure":
+            elif progress == "tried":
                 no_keep += 1   # an experiment ran but was not accepted (a re-measurement is neither)
+            idle = idle + 1 if progress == "nothing" else 0
             if summary.get("error") or (summary.get("is_error") and summary.get("subtype") != "error_max_turns"):
                 print(f"iteration problem: {summary.get('error') or summary.get('result', '')[:300]}")
                 time.sleep(10.0)

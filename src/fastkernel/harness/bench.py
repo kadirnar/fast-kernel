@@ -15,7 +15,8 @@ from __future__ import annotations
 import math
 import statistics
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def _sync():
@@ -83,8 +84,18 @@ def auto_inner(fn, *, target_ms: float = 5.0, cap: int = 32) -> int:
     return max(1, min(cap, int(math.ceil(target_ms / med))))
 
 
+def _ratio_stats(ratios: list[float]) -> tuple[float, float]:
+    """(median ratio, relative ~95 % half-width of that median)."""
+    if not ratios:
+        return float("nan"), float("inf")
+    ratio = statistics.median(ratios)
+    unc = _median_uncertainty(ratios)
+    return ratio, (unc / ratio if ratio else float("inf"))
+
+
 def compare_callables(fn_a, fn_b, *, warmup: int = 5, pairs: int = 20, ramp_seconds: float = 1.0,
-                      inner: int | None = None, target_ms: float = 5.0) -> dict[str, Any]:
+                      inner: int | None = None, target_ms: float = 5.0, max_pairs: int | None = None,
+                      resolved: Callable[[float, float], bool] | None = None) -> dict[str, Any]:
     """Time `fn_a` and `fn_b` interleaved and return the paired ratio a/b (>1 means b is faster).
 
     Each pair runs both callables back to back, and the order alternates (a,b then b,a) so that any
@@ -97,10 +108,35 @@ def compare_callables(fn_a, fn_b, *, warmup: int = 5, pairs: int = 20, ramp_seco
     than the reference it is compared against, and the shorter call carries proportionally more of
     the fixed per-sample jitter; batching each side to about `target_ms` puts them on equal footing
     instead of letting the faster one dominate the uncertainty.
+
+    Sequential refinement: with `resolved(ratio, uncertainty) -> bool` given, the comparison collects
+    `pairs` pairs, asks whether the caller's decision is already settled, and if not keeps adding
+    batches of `pairs` until it is or `max_pairs` were spent. A clear win or a clear loss therefore
+    costs one batch; only a candidate sitting on a decision boundary is measured longer, which is
+    exactly where extra pairs change the outcome. The alternating order continues across batches.
     """
     import torch
     inner_a = inner if isinstance(inner, int) else auto_inner(fn_a, target_ms=target_ms)
     inner_b = inner if isinstance(inner, int) else auto_inner(fn_b, target_ms=target_ms)
+    limit = max(pairs, int(max_pairs or pairs))
+    a_samples: list[float] = []
+    b_samples: list[float] = []
+    ratios: list[float] = []
+    rounds = 0
+
+    def collect(count: int) -> None:
+        for _ in range(count):
+            if len(a_samples) % 2 == 0:
+                ta = _time_once(fn_a, inner_a)
+                tb = _time_once(fn_b, inner_b)
+            else:
+                tb = _time_once(fn_b, inner_b)
+                ta = _time_once(fn_a, inner_a)
+            a_samples.append(ta)
+            b_samples.append(tb)
+            if tb > 0:
+                ratios.append(ta / tb)
+
     with torch.inference_mode():
         for _ in range(warmup):
             fn_a()
@@ -111,29 +147,24 @@ def compare_callables(fn_a, fn_b, *, warmup: int = 5, pairs: int = 20, ramp_seco
             fn_a()
             fn_b()
         _sync()
-        a_samples: list[float] = []
-        b_samples: list[float] = []
-        ratios: list[float] = []
-        for i in range(pairs):
-            if i % 2 == 0:
-                ta = _time_once(fn_a, inner_a)
-                tb = _time_once(fn_b, inner_b)
-            else:
-                tb = _time_once(fn_b, inner_b)
-                ta = _time_once(fn_a, inner_a)
-            a_samples.append(ta)
-            b_samples.append(tb)
-            if tb > 0:
-                ratios.append(ta / tb)
-    ratio = statistics.median(ratios) if ratios else float("nan")
-    unc = _median_uncertainty(ratios) if ratios else float("inf")
+        collect(pairs)
+        rounds = 1
+        while resolved is not None and len(a_samples) < limit:
+            ratio, unc = _ratio_stats(ratios)
+            # the candidate's own median goes with the ratio: the stopping rule needs both to see
+            # whether the anchored and the raw basis agree on the sign of the change
+            if resolved(ratio, unc, statistics.median(b_samples) if b_samples else float("nan")):
+                break
+            collect(min(pairs, limit - len(a_samples)))
+            rounds += 1
+    ratio, rel_unc = _ratio_stats(ratios)
     return {
         "ratio": ratio,                                  # a / b  (>1 => b is faster than a)
-        "ratio_uncertainty": unc / ratio if ratio else float("inf"),   # relative, ~95 % half-width
+        "ratio_uncertainty": rel_unc,                    # relative, ~95 % half-width
         "ratio_spread": (statistics.pstdev(ratios) / ratio) if len(ratios) > 1 and ratio else 0.0,
         "a_median_ms": statistics.median(a_samples) if a_samples else None,
         "b_median_ms": statistics.median(b_samples) if b_samples else None,
-        "pairs": len(ratios), "inner_a": inner_a, "inner_b": inner_b, "ratios": ratios,
+        "pairs": len(ratios), "rounds": rounds, "inner_a": inner_a, "inner_b": inner_b, "ratios": ratios,
     }
 
 

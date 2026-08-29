@@ -26,7 +26,7 @@ from typing import Any
 from .. import knowledge, results
 from ..campaign import Campaign, Incumbent
 from ..profiling.plan import write_plan
-from ..util import fmt, now_iso, read_json, run, slugify, tail_text, write_json
+from ..util import GpuLock, fmt, now_iso, read_json, run, slugify, tail_text, write_json
 
 
 def _metric_value(metrics: dict[str, Any], name: str, primary: str | None) -> float | None:
@@ -64,19 +64,34 @@ def decide_improvement(goal, incumbent, metrics: dict[str, Any], value: float | 
     anchor = metrics.get("anchor") or {}
     anchor_ratio = anchor.get("ratio")
     anchor_unc = float(anchor.get("ratio_uncertainty") or 0.0)
-    improvement = _improvement(goal.minimize, incumbent.value, value)
+    raw_improvement = _improvement(goal.minimize, incumbent.value, value)
+    improvement = raw_improvement
     threshold = max(goal.min_improvement, incumbent.noise_floor or 0.0)
     basis = "raw milliseconds vs the incumbent's stored value"
+    contested = False
     if anchor_ratio and incumbent.anchor_ratio:
         improvement = anchor_ratio / incumbent.anchor_ratio - 1.0
         # two independent ratio measurements, so their uncertainties add in quadrature
         threshold = max(goal.min_improvement, math.hypot(anchor_unc, incumbent.anchor_uncertainty))
         basis = "anchored ratio vs the reference model"
+        # The two bases measure the same change against different references, so they should agree
+        # on its SIGN. When they do not, this run has not resolved the change, whatever magnitude
+        # the anchored ratio reports -- and acting on it is how a campaign promotes a regression or
+        # throws away a real win. Both happened in campaigns/mimi within one session: a change was
+        # kept at +4.21 % anchored that the profiler put at +18.7 us of gpu_busy and five absolute
+        # readings put at 1.45 % SLOWER, and its revert was then discarded at -1.07 % anchored while
+        # the same run measured 1.406 against an incumbent of 1.432. Banking a contested reading
+        # keeps the work without moving the number the campaign defends.
+        if raw_improvement is not None and (improvement > 0) != (raw_improvement > 0):
+            contested = True
     out: dict[str, Any] = {"anchor_ratio": anchor_ratio, "anchor_uncertainty": anchor_unc,
-                           "improvement": improvement, "threshold": threshold, "decision_basis": basis}
+                           "improvement": improvement, "raw_improvement": raw_improvement,
+                           "contested": contested, "threshold": threshold, "decision_basis": basis}
     if improvement is not None and improvement >= threshold:
         out["status"] = "keep"
-        out["reason"] = f"improved {improvement * 100:+.2f}% (threshold {threshold * 100:.2f}%, {basis})"
+        out["reason"] = (f"improved {improvement * 100:+.2f}% (threshold {threshold * 100:.2f}%, {basis})"
+                         + (f" -- CONTESTED: raw milliseconds say {raw_improvement * 100:+.2f}%, so re-anchor and "
+                            f"re-measure before building on this number" if contested else ""))
     elif simpler and improvement is not None and improvement >= -threshold:
         out["status"] = "keep"
         out["reason"] = f"kept as simpler code within noise ({improvement * 100:+.2f}%)"
@@ -92,9 +107,27 @@ def decide_improvement(goal, incumbent, metrics: dict[str, Any], value: float | 
                          f"({incumbent.banked + 1}/{goal.bench.max_banked})")
     else:
         out["status"] = "discard"
-        out["reason"] = (f"no improvement: {improvement * 100:+.2f}% vs threshold {threshold * 100:.2f}%"
+        out["reason"] = ((f"no improvement: {improvement * 100:+.2f}% vs threshold {threshold * 100:.2f}%"
+                          + (f" -- CONTESTED: raw milliseconds say {raw_improvement * 100:+.2f}%, so this run has not "
+                             f"resolved it; re-anchor and retry before discarding the idea" if contested else ""))
                          if improvement is not None else "could not compare to incumbent")
     return out
+
+
+def _busy_ratio(prof: dict[str, Any], value: float | None) -> float | None:
+    """GPU-busy against the BENCHMARKED latency, not the profiler's own wall clock.
+
+    The profile times its own call to get a denominator; the benchmark times the same call under
+    the protocol every verdict is made on, with a clock ramp and a median. When both exist the
+    benchmark's is the honest one. On campaigns/mimi the profile's denominator reported 83.6 %
+    busy where the benchmark's gives 98.6 %, and the difference is not academic -- it is the
+    difference between "16 % of the wall is reclaimable idle" and "there is nothing on the host
+    left to win", which is the first thing an agent reads off `fast-kernel brief`.
+    """
+    busy = prof.get("gpu_busy_ms")
+    if busy and value:
+        return busy / float(value)
+    return prof.get("gpu_busy_ratio")
 
 
 def run_experiment(campaign: Campaign, description: str, *, baseline: bool = False, techniques: list[str] | None = None,
@@ -156,11 +189,17 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
     if workloads:
         argv += ["--workloads", ",".join(workloads)]
     env = {"PYTHONUNBUFFERED": "1", "FK_EXPERIMENT": str(number), "FK_CAMPAIGN": str(campaign.root)}
-    started = time.perf_counter()
     if not quiet:
         print(f"== experiment #{number}: {record['description']}", flush=True)
-    result = run(argv, cwd=campaign.root, timeout=timeout or goal.bench.timeout_seconds, env=env)
-    duration = time.perf_counter() - started
+    # One GPU, one measurement at a time: parallel agents may build and think concurrently, but the
+    # harness only runs once the device is free, and the wait is not charged to this experiment.
+    with GpuLock(timeout=goal.bench.timeout_seconds, log=lambda m: None if quiet else print(m, flush=True)) as lock:
+        if lock.waited > 1.0:
+            store.event("gpu.waited", number=number, seconds=round(lock.waited, 1))
+        started = time.perf_counter()
+        result = run(argv, cwd=campaign.root, timeout=timeout or goal.bench.timeout_seconds, env=env)
+        duration = time.perf_counter() - started
+    record["gpu_wait_s"] = round(lock.waited, 1)
     (exp_dir / "run.log").write_text(result.stdout + ("\n--- stderr ---\n" + result.stderr if result.stderr else ""), encoding="utf-8")
 
     metrics = read_json(exp_dir / "metrics.json", {}) or {}
@@ -170,7 +209,7 @@ def run_experiment(campaign: Campaign, description: str, *, baseline: bool = Fal
     record.update({
         "duration_s": round(duration, 1), "returncode": result.returncode, "timed_out": result.timed_out,
         "primary_value": value, "metrics": _compact_metrics(metrics), "gates": _compact_gates(gates),
-        "kernel_count": prof.get("kernel_count"), "gpu_busy_ratio": prof.get("gpu_busy_ratio"), "wall_ms": prof.get("wall_ms"),
+        "kernel_count": prof.get("kernel_count"), "gpu_busy_ratio": _busy_ratio(prof, value), "wall_ms": prof.get("wall_ms"),
         "top_targets": [{k: t.get(k) for k in ("id", "title", "fraction", "amdahl_gain", "sol_efficiency", "category", "boundness")} for t in (prof.get("targets") or [])[:6]],
         "candidate_report": metrics.get("candidate_report"), "peak_vram_mb": metrics.get("peak_vram_mb"),
         "candidate_logs": (metrics.get("candidate_logs") or [])[-20:],

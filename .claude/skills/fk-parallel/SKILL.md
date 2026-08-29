@@ -7,7 +7,9 @@ allowed-tools: Bash(fast-kernel *), Bash(uv run *), Bash(git *), Read, Agent
 
 # /fk-parallel — one round with N agents
 
-The GPU and the incumbent are shared, so the protocol is: **explore in parallel, measure serially**.
+The GPU and the incumbent are shared, so the protocol is: **explore in parallel, measure serially** — and
+the harness enforces the second half: `fast-kernel eval` / `baseline` / `profile` / `probe` take a machine-wide
+GPU lock for the harness run (`gpu.waited` events record the wait; it is not charged to the timeout).
 
 ## In-session (Agent tool)
 
@@ -20,8 +22,10 @@ The GPU and the incumbent are shared, so the protocol is: **explore in parallel,
    Engineers self-test on the GPU (small scripts) but do not run `fast-kernel eval` in parallel.
 4. When they return: `cd <campaign> && uv run fast-kernel inbox` — applies each proposal on the current
    incumbent (`git apply --check`), runs the full harness, keeps or reverts, moves the files to
-   `.fast-kernel/inbox/processed|failed/`. Proposals that no longer apply (the incumbent moved) are
-   rejected with an event; ask that engineer to rebase (`git checkout -B worker/<name> <incumbent>`) and re-propose.
+   `.fast-kernel/inbox/processed|failed/`. When the incumbent moved under a proposal, the inbox first tries a
+   3-way merge from the recorded blob ids (worktrees share the object store), so only genuinely overlapping
+   changes are rejected — with an event and the commit to rebase on; ask that engineer to rebase
+   (`git checkout -B worker/<name> <incumbent>`) and re-propose.
 5. `fast-kernel note` the round's lessons; `fast-kernel worktree remove eng-<target>` for finished ones;
    re-rank (`fast-kernel profile` if a keep changed the picture); next round.
 

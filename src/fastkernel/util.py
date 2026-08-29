@@ -111,6 +111,97 @@ def which(name: str) -> str | None:
     return shutil.which(name)
 
 
+class GpuLock:
+    """Machine-wide mutual exclusion for GPU *measurements*.
+
+    Agents think in parallel, but the GPU can only be measured by one harness at a time: a second
+    benchmark, gate run or autotune sharing the device inflates every number of the first one, and a
+    worker would then discard a real win -- or submit an imaginary one -- on contaminated timings.
+    Held around the whole harness subprocess (build, gates, anchored comparison, benchmark, profile)
+    by `fast-kernel eval` / `baseline` / `profile` / `probe`, so waiting never counts against the
+    experiment's own timeout. `FK_GPU_LOCK=0` disables it (single-agent runs lose nothing either way).
+
+    Implemented with an advisory `flock` on a file under ~/.cache/fast-kernel/locks, keyed by
+    CUDA_VISIBLE_DEVICES, so campaigns, worktrees and headless workers on the same device all agree.
+    """
+
+    def __init__(self, timeout: float | None = None, poll: float = 0.5, log=None):
+        self.timeout = timeout
+        self.poll = poll
+        self.log = log or (lambda message: print(message, flush=True))
+        self.waited = 0.0
+        self.acquired = False
+        self._fh = None
+        self.enabled = os.environ.get("FK_GPU_LOCK", "1") not in ("0", "false", "no")
+
+    @staticmethod
+    def path() -> Path:
+        base = Path(os.environ.get("FAST_KERNEL_CACHE") or Path.home() / ".cache" / "fast-kernel") / "locks"
+        base.mkdir(parents=True, exist_ok=True)
+        devices = (os.environ.get("CUDA_VISIBLE_DEVICES") or "all").replace(",", "_").replace("/", "_")
+        return base / f"gpu-{devices}.lock"
+
+    def __enter__(self) -> GpuLock:
+        if not self.enabled:
+            return self
+        try:
+            import fcntl
+        except ImportError:          # not a POSIX host: no locking, no failure
+            return self
+        try:
+            self._fh = open(self.path(), "a+", encoding="utf-8")
+        except OSError:
+            return self
+        started = time.perf_counter()
+        announced = False
+        while True:
+            try:
+                fcntl.flock(self._fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.acquired = True
+                break
+            except OSError:
+                pass
+            waited = time.perf_counter() - started
+            if self.timeout is not None and waited >= self.timeout:
+                self.log(f"[fast-kernel] GPU still busy after {waited:.0f} s; measuring without the lock")
+                break
+            if not announced:
+                holder = ""
+                try:
+                    self._fh.seek(0)
+                    holder = self._fh.read().strip()[:120]
+                except OSError:
+                    pass
+                self.log("[fast-kernel] waiting for the GPU: another measurement is running"
+                         + (f" ({holder})" if holder else "") + " -- this wait is not charged to the experiment")
+                announced = True
+            time.sleep(self.poll)
+        self.waited = time.perf_counter() - started
+        if self.acquired:
+            try:
+                self._fh.seek(0)
+                self._fh.truncate()
+                self._fh.write(f"pid={os.getpid()} cwd={os.getcwd()} since={now_iso()}")
+                self._fh.flush()
+            except OSError:
+                pass
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        if self._fh is not None:
+            try:
+                if self.acquired:
+                    import fcntl
+                    self._fh.seek(0)
+                    self._fh.truncate()
+                    fcntl.flock(self._fh, fcntl.LOCK_UN)
+            except (OSError, ImportError):
+                pass
+            self._fh.close()
+            self._fh = None
+        return False
+
+
 def python_executable() -> str:
     return sys.executable
 

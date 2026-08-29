@@ -22,6 +22,11 @@ class BenchPolicy:
     # ratio does not. Set anchor=false to fall back to comparing raw milliseconds across runs.
     anchor: bool = True
     anchor_pairs: int = 20
+    # When the verdict is borderline -- the measured gain sits within its own uncertainty of the
+    # keep/bank/discard boundaries -- the comparison keeps adding batches of `anchor_pairs` pairs
+    # until it is resolved or this many pairs were spent (sequential refinement: pay more
+    # measurement only where the decision needs it; a clear win or loss costs one batch).
+    anchor_max_pairs: int = 120
     # A measured improvement that is real but smaller than the noise floor used to be thrown away.
     # Instead it is *banked*: the candidate tree is left in place so the next experiment builds on
     # it, and the incumbent only moves once the accumulated tree clears the floor. At most this
@@ -101,6 +106,10 @@ def load_goal(path: Path) -> GoalConfig:
         ramp_seconds=_as_float(bench.get("ramp_seconds"), cfg.bench.ramp_seconds),
         timeout_seconds=_as_float(bench.get("timeout_seconds"), cfg.bench.timeout_seconds),
         profile_every_experiment=bool(bench.get("profile_every_experiment", True)),
+        anchor=bool(bench.get("anchor", cfg.bench.anchor)),
+        anchor_pairs=int(bench.get("anchor_pairs", cfg.bench.anchor_pairs)),
+        anchor_max_pairs=int(bench.get("anchor_max_pairs", cfg.bench.anchor_max_pairs)),
+        max_banked=int(bench.get("max_banked", cfg.bench.max_banked)),
     )
     gates = data.get("gates") if isinstance(data.get("gates"), dict) else {}
     cfg.gates = GatePolicy(

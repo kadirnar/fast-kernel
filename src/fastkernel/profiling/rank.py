@@ -72,15 +72,18 @@ def build_targets(profile: dict[str, Any], device: dict[str, Any], history: list
         achieved_tflops = (grp["flops"] / us / 1e12) if us > 0 and grp["flops"] else 0.0
         mem_eff = min(1.0, achieved_gbs * 1e9 / peak_bw) if grp["bytes"] else 0.0
         comp_eff = min(1.0, achieved_tflops * 1e12 / peak_fp32) if grp["flops"] else 0.0
-        sol = max(mem_eff, comp_eff)               # measured roofline efficiency, 0..1
-        headroom = fraction * (1.0 - sol)          # measured end-to-end headroom, not a technique prior
+        # Measured roofline efficiency, 0..1. A group whose kernels could not be tied to any shape
+        # (non-forward methods, custom launches from candidate code) has *no* estimate -- that is
+        # reported as unknown, never as "0 % of peak", which would rank it as pure headroom.
+        sol: float | None = max(mem_eff, comp_eff) if (grp["bytes"] or grp["flops"]) else None
+        headroom = fraction * (1.0 - sol) if sol is not None else None   # measured end-to-end headroom
         targets.append({
             "id": _target_id(grp["key"]), "title": f"{grp['class']} ({category}, {bound}-bound)", "class": grp["class"],
             "category": category, "boundness": bound, "fraction": fraction, "gpu_us": round(grp["gpu_us"], 2),
             "kernel_count": grp["kernel_count"], "instances": grp["instances"], "instance_count": len(grp["instances"]) if len(grp["instances"]) < 12 else sum(1 for m in modules if m["category"] == grp["category"] and (m.get("class") or m["path"].rsplit(".", 1)[-1]) == grp["class"]),
             "expected_speedup": exp, "amdahl_gain": gain, "scope": "module-group",
             "achieved_gbs": round(achieved_gbs, 1), "achieved_tflops": round(achieved_tflops, 2),
-            "sol_efficiency": round(sol, 3), "headroom": headroom,
+            "sol_efficiency": round(sol, 3) if sol is not None else None, "headroom": headroom,
             "flops": grp["flops"], "bytes": grp["bytes"], "hint": (hint or {}).get("note", ""),
         })
     # whole-workload launch-bound target
