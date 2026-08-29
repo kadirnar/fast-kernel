@@ -105,8 +105,9 @@ You are the orchestrator (`fk-orchestrator`). Delegate with the Agent tool:
   times → abandon the approach.
 - A missing library is never a blocker and never a reason to ask me: install it yourself
   (`uv pip install ...`; the harness also auto-installs a backend's package on probe) and note it.
-- Plateaus (5 discards on a target): change approach, then backend, then target; then widen the
-  scope (combine kept kernels, remove copies between them); re-profile. The list of ideas is never empty.
+- Plateaus (5 discards on a target): change approach, then target; then widen the scope (combine kept
+  kernels, remove the copies between them); re-profile. Switching backend is not one of the moves — the
+  backend is CUDA C++. The list of ideas is never empty.
 - Verdicts are keep / **bank** / discard / crash. A bank means the gain was real but smaller than this
   machine can resolve in one measurement: the harness commits it and leaves it in `candidate/`, and the
   next experiment builds on top of it until the pile is jointly large enough to promote. Treat a bank as
